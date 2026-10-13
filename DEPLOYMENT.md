@@ -120,7 +120,7 @@ Then immediately take a PostgreSQL export as your first off-site copy: `npm run 
 
 ### Step 6. Create the Vercel project
 
-1. **Add New, Project**, import the same repository. Leave **Root Directory** empty (the root `vercel.json` sets install, build and output).
+1. **Add New, Project**, import the same repository and set **Root Directory** to `client`. Vercel reads `vercel.json` only from the project's Root Directory, so the settings live in [`client/vercel.json`](client/vercel.json) (framework Vite, install, build `npm run build`, output `dist`, the security headers and the single-page-app fallback). Leave the dashboard's Framework/Build/Output/Install overrides **off** so the file is the only place these are defined. A `vercel.json` at the repository root is ignored when the Root Directory is `client`, which silently drops the headers and the fallback.
 2. Add the environment variable `VITE_API_URL` = your Render address (section 3.2). Deploy.
 3. Note the Vercel address (for example `https://pg-rental.vercel.app`). If you add a custom domain later, add it to `CLIENT_ORIGINS` too.
 
@@ -142,7 +142,7 @@ On Render set `CLIENT_ORIGINS` to the exact Vercel address and let it redeploy. 
 
 Let Vercel forward `/api` to Render so the browser only ever talks to the Vercel address and the cookie is first-party.
 
-1. In `vercel.json` add this as the **first** entry of `rewrites` (replace the host with your Render address):
+1. In `client/vercel.json` add this as the **first** entry of `rewrites` (replace the host with your Render address):
    ```json
    { "source": "/api/:path*", "destination": "https://YOUR-SERVICE.onrender.com/api/:path*" }
    ```
@@ -166,7 +166,8 @@ Let Vercel forward `/api` to Render so the browser only ever talks to the Vercel
 
 Run through these on the **Vercel** address (ideally also on a phone):
 
-- [ ] The site loads; refreshing on `/owner/tenants` does not give a 404 (the SPA fallback in `vercel.json`).
+- [ ] The site loads; refreshing on `/owner/tenants` does not give a 404 (the SPA fallback in `client/vercel.json`).
+- [ ] Response headers on the Vercel address include `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff` (browser dev tools, Network tab, click the page request).
 - [ ] Owner login works and **stays** logged in after clicking around and after a page refresh (this is the cookie test).
 - [ ] The owner dashboard shows your migrated PG, rooms, tenants and payments (compare with the numbers from Step 3).
 - [ ] A tenant who was already registered logs in with their existing password.
@@ -203,7 +204,7 @@ npm run migrate:from-sqlite -w server -- --sqlite <file> [--commit]
 npm run backup:postgres -w server                 # DATABASE_URL set
 
 # what the hosts run
-# Vercel : npm ci --workspace client --include-workspace-root   then   npm run build --workspace client   (output client/dist)
+# Vercel : Root Directory = client; client/vercel.json runs  npm ci --workspace client --include-workspace-root  then  npm run build  (output client/dist)
 # Render : npm ci --workspace server --omit=dev --omit=optional   then   npm run start --workspace server
 ```
 
@@ -214,6 +215,7 @@ npm run backup:postgres -w server                 # DATABASE_URL set
 | Browser console: *blocked by CORS policy* | `CLIENT_ORIGINS` on Render is missing, has a trailing slash, uses `http`, or differs from the address in the address bar. Fix it and redeploy. |
 | Login seems to work, then you are logged out | Third-party cookies are being blocked: use the proxy mode in section 5. Also check `COOKIE_SAMESITE=none` and that the site is on https. |
 | Every write returns 403 "Cross-site request blocked" | The request's `Origin` is not in `CLIENT_ORIGINS`. |
+| Vercel: *No Output Directory named "dist" found* | First check the top of the build log: it must show that the build ran in the `client` folder and that `vite build` printed `dist/index.html`. Root Directory must be `client`, and `client/vercel.json` must exist in the commit being built (a `vercel.json` at the repository root is not read). If `vite build` did not run or failed earlier, the output directory will not exist; the real error is above the message. |
 | *The server sent an unexpected reply* in the app | The Vercel build has no `VITE_API_URL` (the app asked Vercel for `/api`). Set it and redeploy the frontend. |
 | Render log: `Refusing to start in production on SQLite` | `DATABASE_URL` is missing or empty. |
 | Render log: `Cannot start: ... ECONNREFUSED / timeout / password authentication failed` | Wrong or incomplete `DATABASE_URL`, or the database is waking up (retry once). Check `?sslmode=require`. |
