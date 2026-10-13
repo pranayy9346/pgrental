@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Alert, Async, Badge, Button, Card, Empty, PageHeader, Stat, Table } from '../../components/ui.jsx';
+import { Alert, Async, Badge, Button, Card, Empty, Icon, PageHeader, Stat, Table } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { formatDate, formatPeriod, money } from '../../lib/format.js';
 
@@ -34,7 +34,12 @@ export default function OwnerDashboard() {
             <PageHeader
               title="Dashboard"
               subtitle={`Overview for ${formatPeriod(period)}`}
-              actions={<Button onClick={() => navigate('/owner/tenants?add=1')}>+ Add Tenant</Button>}
+              actions={
+                <Button onClick={() => navigate('/owner/tenants?add=1')}>
+                  <Icon name="plus" className="h-4 w-4" />
+                  Add Tenant
+                </Button>
+              }
             />
 
             {stats.properties === 0 ? (
@@ -83,29 +88,34 @@ export default function OwnerDashboard() {
             )}
             {message && <Alert tone={message.tone}>{message.text}</Alert>}
 
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Stat label="Rooms" value={stats.rooms} sub={`${stats.total_beds} beds`} />
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+              <Stat label="Rooms" value={stats.rooms} sub={`${stats.total_beds} beds`} icon="layers" />
               <Stat
                 label="Beds occupied"
                 value={`${stats.occupied_beds} / ${stats.total_beds}`}
                 sub={`${pct}% occupancy · ${vacant} vacant`}
                 tone="indigo"
+                icon="bed"
+                progress={pct}
               />
               <Stat
                 label="Collected this month"
                 value={money(stats.month_collected)}
                 sub={`of ${money(stats.month_due)} due`}
                 tone="green"
+                icon="wallet"
+                progress={stats.month_due ? Math.round((stats.month_collected / stats.month_due) * 100) : 0}
               />
               <Stat
                 label="Total outstanding"
                 value={money(stats.total_outstanding)}
                 sub={`${stats.open_complaints} open complaint(s)`}
                 tone={stats.total_outstanding > 0 ? 'red' : 'green'}
+                icon="alertCircle"
               />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-2">
+            <div className="grid gap-6">
               <Card
                 title="Overdue rent"
                 actions={
@@ -148,8 +158,8 @@ export default function OwnerDashboard() {
                 ) : (
                   <ul className="divide-y divide-slate-100">
                     {recentComplaints.map((c) => (
-                      <li key={c.id} className="flex items-start justify-between gap-3 py-2.5">
-                        <div>
+                      <li key={c.id} className="flex items-start justify-between gap-3 py-3">
+                        <div className="min-w-0">
                           <p className="font-medium text-slate-800">{c.title}</p>
                           <p className="text-xs text-slate-500">
                             {c.tenant_name} · {c.property_name} {c.room_number} · {formatDate(c.created_at)}

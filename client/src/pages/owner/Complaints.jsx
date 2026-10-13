@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Async, Badge, Button, Card, Empty, Field, FormModal, PageHeader, useForm } from '../../components/ui.jsx';
+import { Async, Badge, Button, Card, Empty, Field, FormModal, PageHeader, Tabs, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { capitalize, formatDate, labels } from '../../lib/format.js';
 
@@ -39,17 +39,7 @@ export default function Complaints() {
   return (
     <div>
       <PageHeader title="Complaints" subtitle="Maintenance requests and complaints raised by your tenants." />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {tabs.map(([value, label]) => (
-          <button
-            key={value}
-            onClick={() => setFilter(value)}
-            className={`rounded-full px-3 py-1.5 text-sm font-medium ${filter === value ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={tabs} value={filter} onChange={setFilter} label="Filter complaints" />
       <Async state={state}>
         {({ complaints }) =>
           complaints.length === 0 ? (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Alert, Async, Badge, Button, Card, Field, FormModal, Loading, Modal, PageHeader, Table, useForm } from '../../components/ui.jsx';
+import { Alert, Async, Badge, Button, Card, Field, FormModal, Icon, Loading, Modal, PageHeader, Table, Tabs, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { floorLabel, formatDate, money, todayISO } from '../../lib/format.js';
 
@@ -141,19 +141,14 @@ export default function Tenants() {
       <PageHeader
         title="Tenants"
         subtitle="Step 3 of 3 · Add a tenant's name and email, assign a room, and they register themselves."
-        actions={<Button onClick={() => setAdding(true)}>+ Add tenant</Button>}
+        actions={
+          <Button onClick={() => setAdding(true)}>
+            <Icon name="plus" className="h-4 w-4" />
+            Add tenant
+          </Button>
+        }
       />
-      <div className="mb-4 flex gap-2">
-        {tabs.map(([value, label]) => (
-          <button
-            key={value}
-            onClick={() => setParams({ status: value })}
-            className={`rounded-full px-3 py-1.5 text-sm font-medium ${status === value ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={tabs} value={status} onChange={(value) => setParams({ status: value })} label="Show tenants" />
       <Card>
         <Async state={state}>
           {({ tenants }) => (

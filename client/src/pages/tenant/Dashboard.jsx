@@ -29,10 +29,29 @@ export default function TenantDashboard() {
             </Alert>
           )}
 
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Stat label="Monthly rent" value={stay ? money(stay.monthly_rent) : '—'} />
+          {stay && (
+            <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 p-5 text-white shadow-sm sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm text-indigo-100">Your room</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Room {stay.room_number}</p>
+                  <p className="mt-1 break-words text-sm text-indigo-100">
+                    {stay.property_name} · {stay.address}, {stay.city}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white/15 px-4 py-3 ring-1 ring-white/20 sm:text-right">
+                  <p className="text-xs font-medium uppercase tracking-wide text-indigo-100">Balance due</p>
+                  <p className="text-2xl font-bold">{money(balanceDue)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+            <Stat label="Monthly rent" value={stay ? money(stay.monthly_rent) : '—'} icon="wallet" />
             <Stat
               label={`Rent for ${formatPeriod(thisPeriod())}`}
+              icon="card"
               value={thisMonth ? <Badge status={thisMonth.status} /> : '—'}
               sub={
                 thisMonth
@@ -42,16 +61,16 @@ export default function TenantDashboard() {
                   : 'Not billed yet'
               }
             />
-            <Stat label="Total balance due" value={money(balanceDue)} tone={balanceDue > 0 ? 'red' : 'green'} />
-            <Stat label="Open complaints" value={openComplaints} tone={openComplaints ? 'amber' : 'slate'} />
+            <Stat label="Total balance due" value={money(balanceDue)} tone={balanceDue > 0 ? 'red' : 'green'} icon="alertCircle" />
+            <Stat label="Open complaints" value={openComplaints} tone={openComplaints ? 'amber' : 'slate'} icon="message" />
           </div>
 
           {stay && (
             <div className="grid gap-6 lg:grid-cols-2">
               <Card title="My room">
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
                   <dt className="text-slate-500">Property</dt>
-                  <dd className="font-medium">{stay.property_name}</dd>
+                  <dd className="break-words font-medium">{stay.property_name}</dd>
                   <dt className="text-slate-500">Address</dt>
                   <dd>
                     {stay.address}, {stay.city}
@@ -75,7 +94,7 @@ export default function TenantDashboard() {
                 </dl>
               </Card>
               <Card title="PG owner contact">
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
                   <dt className="text-slate-500">Name</dt>
                   <dd className="font-medium">{stay.owner_name}</dd>
                   <dt className="text-slate-500">Phone</dt>

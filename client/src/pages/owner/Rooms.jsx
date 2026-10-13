@@ -22,11 +22,11 @@ function RoomForm({ pg, room, defaultFloor = 0, onClose, onSaved }) {
   const floors = Array.from({ length: pg.total_floors }, (_, i) => ({ value: String(i), label: floorLabel(i) }));
   return (
     <FormModal open title={room ? `Edit room ${room.room_number}` : 'Add room'} onClose={onClose} form={form}>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field form={form} name="room_number" label="Room number" placeholder="e.g. 101" required />
         <Field form={form} name="floor" label="Floor" as="select" options={floors} />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field form={form} name="capacity" label="Beds (capacity)" type="number" min="1" max="20" required />
         <Field form={form} name="monthly_rent" label="Rent per bed (₹ / month)" type="number" min="0" required />
       </div>

@@ -106,22 +106,22 @@ export default function Payments() {
         }
       />
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm">
+      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+        <label className="min-w-[9rem] flex-1 text-sm sm:flex-none">
           <span className="mb-1 block font-medium text-slate-700">Month</span>
           <input
             type="month"
             value={period}
             onChange={(e) => update('period', e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            className="block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/15 sm:h-10 sm:text-sm"
           />
         </label>
-        <label className="text-sm">
+        <label className="min-w-[9rem] flex-1 text-sm sm:flex-none">
           <span className="mb-1 block font-medium text-slate-700">Status</span>
           <select
             value={status}
             onChange={(e) => update('status', e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+            className="block h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/15 sm:h-10 sm:text-sm"
           >
             <option value="">All</option>
             <option value="unpaid">Not fully paid</option>
