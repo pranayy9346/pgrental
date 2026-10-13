@@ -21,20 +21,14 @@ export function AuthProvider({ children }) {
     return d.user;
   }, []);
 
-  const register = useCallback(async (form) => {
-    const d = await api('/auth/register-owner', { method: 'POST', body: form });
-    setUser(d.user);
-    return d.user;
-  }, []);
-
   const logout = useCallback(async () => {
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, setUser, checking, login, register, logout }),
-    [user, checking, login, register, logout],
+    () => ({ user, setUser, checking, login, logout }),
+    [user, checking, login, logout],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

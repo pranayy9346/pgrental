@@ -159,6 +159,8 @@ const badgeTones = {
   pending: 'bg-red-100 text-red-700',
   open: 'bg-red-100 text-red-700',
   ended: 'bg-slate-100 text-slate-600',
+  vacant: 'bg-emerald-100 text-emerald-700',
+  full: 'bg-slate-200 text-slate-700',
 };
 
 export function Badge({ status, children }) {
@@ -347,27 +349,4 @@ export function useConfirm() {
     </Modal>
   );
   return { ask, element };
-}
-
-// Shows a one-time temporary password with a copy button.
-export function SecretBox({ label, value }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-      <p className="text-sm text-amber-800">{label}</p>
-      <div className="mt-2 flex items-center gap-2">
-        <code className="rounded bg-white px-3 py-1.5 font-mono text-base font-semibold text-slate-900">{value}</code>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            navigator.clipboard?.writeText(value).then(() => setCopied(true));
-          }}
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </div>
-      <p className="mt-2 text-xs text-amber-700">This password is shown only once. The tenant will be asked to change it on first login.</p>
-    </div>
-  );
 }

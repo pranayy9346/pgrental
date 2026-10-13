@@ -20,18 +20,40 @@ npm install
 
 This installs dependencies for the root, `client` and `server` in one step.
 
-Optional: copy the server environment file to change the defaults.
+Create the server settings file and set the owner account (required):
 
 ```sh
 copy server\.env.example server\.env
 ```
 
-| Variable  | Default             | Description                                  |
-| --------- | ------------------- | -------------------------------------------- |
-| `PORT`    | `3001`              | Backend port                                 |
-| `DB_PATH` | `data/pg-rental.db` | SQLite file path, relative to `server/`      |
+Then edit `server/.env` and fill in `OWNER_EMAIL` and `OWNER_PASSWORD`. There is **no owner sign-up page**: this is the
+one and only owner account. The password is stored hashed, `server/.env` is ignored by git, and nothing shows the
+password in the app. To change it, edit `server/.env` and restart the server. If your database already has an owner, use
+that owner's email to keep its data (any other owner rows are kept but cannot log in).
+
+| Variable         | Default             | Description                                          |
+| ---------------- | ------------------- | ---------------------------------------------------- |
+| `OWNER_EMAIL`    | (required)          | Login email of the one owner account                 |
+| `OWNER_PASSWORD` | (required)          | Password of the owner account (at least 8 characters) |
+| `OWNER_NAME`     | `PG Owner`          | Display name when the owner account is first created |
+| `PORT`           | `3001`              | Backend port                                         |
+| `DB_PATH`        | `data/pg-rental.db` | SQLite file path, relative to `server/`              |
 
 The SQLite database file is created automatically on first start.
+
+## How it works
+
+Each owner manages **one PG**. Set it up in three steps (also the order of the sidebar):
+
+1. **PG Details**: name, address, city and the number of floors.
+2. **Floors & Rooms**: add rooms to each floor (room number, floor, beds, rent). Room numbers are unique within the PG, and a room never takes more tenants than its beds.
+3. **Tenants**: the owner adds a tenant's name and email (and optionally a room). The tenant then registers themselves:
+   login page, **Tenant? Register here**, enter the email the owner added, choose a password, and click **Create my account**.
+
+Only emails the owner added can register (compared case-insensitively). An unknown email, or an email that already
+has an account, is refused. **There is no email verification**: whoever knows an owner-added email can register it first,
+so the owner should add a tenant only when the tenant is ready to register, and can use **Reset access** on the tenant's
+page if an account was claimed by mistake.
 
 ## Try it with demo data
 
@@ -39,13 +61,14 @@ The SQLite database file is created automatically on first start.
 npm run seed
 ```
 
-| Role   | Email            | Password      |
-| ------ | ---------------- | ------------- |
-| Owner  | owner@demo.com   | owner12345    |
-| Tenant | rahul@demo.com   | tenant12345   |
+| Role   | Email                     | Password                      |
+| ------ | ------------------------- | ----------------------------- |
+| Owner  | your `OWNER_EMAIL`        | your `OWNER_PASSWORD`         |
+| Tenant | rahul@demo.com            | tenant12345 (demo tenants)    |
 
-Or click "Create an owner account" on the login page to start empty. Owners create tenant logins
-(Tenants > Add tenant) and share the one-time temporary password; tenants must change it on first login.
+`neha@demo.com` is added but **not registered yet**: use it to try tenant registration .
+The demo data is attached to the owner from `server/.env` and is for development only (the script refuses to run in production).
+To start with no demo data, simply skip `npm run seed`.
 
 ## Test
 
@@ -63,7 +86,11 @@ npm run dev
 - Backend: http://localhost:3001
 - Health check: http://localhost:3001/api/health
 
-The frontend dev server proxies `/api/*` to the backend, so the client can call `/api/...` directly.
+The frontend dev server proxies `/api/*` to the backend, so the client calls `/api/...` on its own origin.
+
+CORS: the backend also accepts cross-origin requests (with the login cookie) from the origins in `CLIENT_ORIGINS`
+(default in development: `http://localhost:5173` and `http://127.0.0.1:5173`; default in production: none).
+To call the backend directly instead of through the proxy, set `VITE_API_URL=http://localhost:3001` in `client/.env`.
 
 Press `Ctrl+C` once in the terminal to stop both servers.
 

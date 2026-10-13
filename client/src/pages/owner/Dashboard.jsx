@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Alert, Async, Badge, Button, Card, Empty, PageHeader, Stat, Table } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { formatDate, formatPeriod, money } from '../../lib/format.js';
 
 export default function OwnerDashboard() {
+  const navigate = useNavigate();
   const state = useApi('/owner/dashboard');
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState(null);
@@ -30,16 +31,34 @@ export default function OwnerDashboard() {
         const pct = stats.total_beds ? Math.round((stats.occupied_beds / stats.total_beds) * 100) : 0;
         return (
           <div className="space-y-6">
-            <PageHeader title="Dashboard" subtitle={`Overview for ${formatPeriod(period)}`} />
+            <PageHeader
+              title="Dashboard"
+              subtitle={`Overview for ${formatPeriod(period)}`}
+              actions={<Button onClick={() => navigate('/owner/tenants?add=1')}>+ Add Tenant</Button>}
+            />
 
-            {stats.properties === 0 && (
+            {stats.properties === 0 ? (
               <Alert tone="info">
-                Welcome! Start by{' '}
-                <Link to="/owner/properties" className="font-semibold underline">
-                  adding your first property and its rooms
+                Welcome! Step 1:{' '}
+                <Link to="/owner/pg" className="font-semibold underline">
+                  set up your PG details
+                </Link>
+                , then add floors and rooms, then tenants.
+              </Alert>
+            ) : stats.rooms === 0 ? (
+              <Alert tone="info">
+                Step 2:{' '}
+                <Link to="/owner/rooms" className="font-semibold underline">
+                  add rooms to your floors
                 </Link>
                 , then add tenants.
               </Alert>
+            ) : (
+              stats.occupied_beds === 0 && (
+                <Alert tone="info">
+                  Step 3: use <b>+ Add Tenant</b> to add your first tenant. They register themselves with the email you enter.
+                </Alert>
+              )
             )}
 
             {stats.missing_charges > 0 && (
@@ -65,7 +84,7 @@ export default function OwnerDashboard() {
             {message && <Alert tone={message.tone}>{message.text}</Alert>}
 
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Stat label="Properties" value={stats.properties} sub={`${stats.rooms} rooms`} />
+              <Stat label="Rooms" value={stats.rooms} sub={`${stats.total_beds} beds`} />
               <Stat
                 label="Beds occupied"
                 value={`${stats.occupied_beds} / ${stats.total_beds}`}

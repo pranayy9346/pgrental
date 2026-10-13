@@ -89,10 +89,18 @@ const findSessionUser = db.prepare(`
   WHERE s.token_hash = ? AND s.expires_at > ?
 `);
 
+// ---- The one owner ----
+// The app has exactly one owner account: the one named by OWNER_EMAIL (see lib/owner.js). Any other owner row
+// that may exist in an older database is kept but disabled: it cannot log in and its sessions stop working.
+// OWNER_EMAIL is read on every call so a changed setting takes effect for sessions that are already open.
+export const configuredOwnerEmail = () => (process.env.OWNER_EMAIL || '').trim().toLowerCase() || null;
+export const mayUseApp = (user) => user.role !== 'owner' || user.email.toLowerCase() === configuredOwnerEmail();
+
 // Middleware: attaches req.user when a valid session cookie is present. Never rejects.
 export function loadUser(req, res, next) {
   const token = readCookie(req, SESSION_COOKIE);
-  req.user = token ? findSessionUser.get(sha256(token), new Date().toISOString()) || null : null;
+  const user = token ? findSessionUser.get(sha256(token), new Date().toISOString()) : null;
+  req.user = user && mayUseApp(user) ? user : null;
   next();
 }
 
@@ -124,29 +132,31 @@ export function purgeExpiredSessions() {
   db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString());
 }
 
-// ---- Login rate limiting (in memory, per IP + email) ----
-const attempts = new Map();
-const WINDOW_MS = 15 * 60_000;
-const MAX_ATTEMPTS = 10;
-
-export function checkLoginRate(key) {
-  const now = Date.now();
-  const entry = attempts.get(key);
-  if (entry && now - entry.first < WINDOW_MS && entry.count >= MAX_ATTEMPTS) {
-    throw new HttpError(429, 'Too many login attempts. Please wait 15 minutes and try again.');
-  }
+// ---- Rate limiting (in memory, per key such as IP + email) ----
+export function createLimiter(maxAttempts, windowMs, message) {
+  const attempts = new Map();
+  return {
+    // Throws 429 if the key has already failed too many times in the window.
+    check(key) {
+      const entry = attempts.get(key);
+      if (entry && Date.now() - entry.first < windowMs && entry.count >= maxAttempts) throw new HttpError(429, message);
+    },
+    fail(key) {
+      const now = Date.now();
+      if (attempts.size > 10_000) {
+        for (const [k, e] of attempts) if (now - e.first >= windowMs) attempts.delete(k);
+      }
+      const entry = attempts.get(key);
+      if (!entry || now - entry.first >= windowMs) attempts.set(key, { first: now, count: 1 });
+      else entry.count++;
+    },
+    clear(key) {
+      attempts.delete(key);
+    },
+  };
 }
 
-export function recordLoginFailure(key) {
-  const now = Date.now();
-  if (attempts.size > 10_000) {
-    for (const [k, e] of attempts) if (now - e.first >= WINDOW_MS) attempts.delete(k);
-  }
-  const entry = attempts.get(key);
-  if (!entry || now - entry.first >= WINDOW_MS) attempts.set(key, { first: now, count: 1 });
-  else entry.count++;
-}
-
-export function clearLoginFailures(key) {
-  attempts.delete(key);
-}
+const loginLimiter = createLimiter(10, 15 * 60_000, 'Too many login attempts. Please wait 15 minutes and try again.');
+export const checkLoginRate = (key) => loginLimiter.check(key);
+export const recordLoginFailure = (key) => loginLimiter.fail(key);
+export const clearLoginFailures = (key) => loginLimiter.clear(key);

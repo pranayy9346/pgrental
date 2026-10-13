@@ -33,7 +33,7 @@ export default function Login() {
   if (user) return <Navigate to={homeFor(user)} replace />;
 
   return (
-    <AuthShell title="Log in" subtitle="Owners and tenants log in here.">
+    <AuthShell title="Log in" subtitle="Owner and tenant login.">
       <form onSubmit={form.handleSubmit} className="space-y-4" noValidate>
         <Alert>{form.error}</Alert>
         <Field form={form} name="email" label="Email" type="email" autoComplete="email" required />
@@ -43,12 +43,12 @@ export default function Login() {
         </Button>
       </form>
       <p className="mt-6 text-center text-sm text-slate-500">
-        PG owner without an account?{' '}
-        <Link to="/register" className="font-medium text-indigo-600 hover:underline">
-          Create an owner account
-        </Link>
+        Tenant?{' '}
+        <Link to="/register/tenant" className="font-medium text-indigo-600 hover:underline">
+          Register here
+        </Link>{' '}
+        with the email your PG owner added.
       </p>
-      <p className="mt-2 text-center text-xs text-slate-400">Tenants: your PG owner creates your login for you.</p>
     </AuthShell>
   );
 }

@@ -4,13 +4,13 @@ import { Loading } from './components/ui.jsx';
 import { AuthProvider, homeFor, useAuth } from './lib/auth.jsx';
 import Login from './pages/Login.jsx';
 import Profile from './pages/Profile.jsx';
-import Register from './pages/Register.jsx';
+import TenantRegister from './pages/TenantRegister.jsx';
 import OwnerComplaints from './pages/owner/Complaints.jsx';
 import OwnerDashboard from './pages/owner/Dashboard.jsx';
 import OwnerNotices from './pages/owner/Notices.jsx';
 import OwnerPayments from './pages/owner/Payments.jsx';
-import Properties from './pages/owner/Properties.jsx';
-import PropertyDetail from './pages/owner/PropertyDetail.jsx';
+import PgDetails from './pages/owner/PgDetails.jsx';
+import Rooms from './pages/owner/Rooms.jsx';
 import TenantDetail from './pages/owner/TenantDetail.jsx';
 import Tenants from './pages/owner/Tenants.jsx';
 import VacateRequests from './pages/owner/VacateRequests.jsx';
@@ -44,12 +44,12 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/register/tenant" element={<TenantRegister />} />
 
           <Route path="/owner" element={<Layout role="owner" />}>
             <Route index element={<OwnerDashboard />} />
-            <Route path="properties" element={<Properties />} />
-            <Route path="properties/:id" element={<PropertyDetail />} />
+            <Route path="pg" element={<PgDetails />} />
+            <Route path="rooms" element={<Rooms />} />
             <Route path="tenants" element={<Tenants />} />
             <Route path="tenants/:id" element={<TenantDetail />} />
             <Route path="payments" element={<OwnerPayments />} />

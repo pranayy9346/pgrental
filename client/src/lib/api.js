@@ -15,12 +15,16 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
+// By default requests go to the same origin (/api/...) and the Vite dev server proxies them to the backend.
+// Set VITE_API_URL (e.g. http://localhost:3001) in client/.env to call the backend directly; this relies on CORS.
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 export async function api(path, { method = 'GET', body } = {}) {
   let res;
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(`${API_URL}/api${path}`, {
       method,
-      credentials: 'same-origin',
+      credentials: API_URL ? 'include' : 'same-origin',
       headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });

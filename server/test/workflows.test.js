@@ -1,6 +1,7 @@
 // Tests for rent due dates and the vacate-request workflow. Separate in-memory database from api.test.js.
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import { asOwner, registerTenant, signInOwner } from './helpers.js';
 
 process.env.DB_PATH = ':memory:';
 const { default: app } = await import('../src/app.js');
@@ -28,23 +29,17 @@ function client() {
   };
 }
 
-const owner = client();
-const owner2 = client();
+const owner = asOwner(client(), 'o@x.com');
+const owner2 = asOwner(client(), 'o2@x.com');
 const alice = client();
 const bob = client();
 const ids = {};
-const pw = {};
 const iso = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
-
-async function login(c, email, password) {
-  const r = await c('POST', '/api/auth/login', { email, password });
-  assert.equal(r.status, 200);
-}
 
 describe('setup', () => {
   test('owner, property, room, two tenants', async () => {
-    assert.equal((await owner('POST', '/api/auth/register-owner', { name: 'Owner', email: 'o@x.com', password: 'password123' })).status, 201);
-    assert.equal((await owner2('POST', '/api/auth/register-owner', { name: 'Other', email: 'o2@x.com', password: 'password123' })).status, 201);
+    await signInOwner(owner, 'o@x.com');
+    await signInOwner(owner2, 'o2@x.com', 'Other');
     ids.property = (await owner('POST', '/api/owner/properties', { name: 'PG', address: '1 Road', city: 'Pune' })).data.property.id;
     ids.room = (await owner('POST', `/api/owner/properties/${ids.property}/rooms`, { room_number: '1', capacity: 3, monthly_rent: 5000 })).data.room.id;
 
@@ -52,13 +47,11 @@ describe('setup', () => {
     assert.equal(a.status, 201, JSON.stringify(a.data));
     assert.equal(a.data.tenant.due_day, 10);
     ids.alice = a.data.tenant.id;
-    pw.alice = a.data.tempPassword;
     const b = await owner('POST', '/api/owner/tenants', { name: 'Bob', email: 'bob@x.com', room_id: ids.room, start_date: '2026-01-01' });
     assert.equal(b.data.tenant.due_day, 5, 'due day defaults to the 5th');
     ids.bob = b.data.tenant.id;
-    pw.bob = b.data.tempPassword;
-    await login(alice, 'alice@x.com', pw.alice);
-    await login(bob, 'bob@x.com', pw.bob);
+    await registerTenant(alice, 'alice@x.com');
+    await registerTenant(bob, 'bob@x.com');
   });
 });
 

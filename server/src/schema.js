@@ -123,11 +123,44 @@ const migrations = [
   CREATE INDEX idx_vacate_tenancy ON vacate_requests(tenancy_id);
   CREATE UNIQUE INDEX uq_vacate_one_pending ON vacate_requests(tenancy_id) WHERE status = 'pending';
   `,
+  `
+  -- Floors: no separate table. A PG says how many floors it has; each room says which floor it is on (0 = ground).
+  ALTER TABLE properties ADD COLUMN total_floors INTEGER NOT NULL DEFAULT 1 CHECK (total_floors BETWEEN 1 AND 50);
+  ALTER TABLE rooms ADD COLUMN floor INTEGER NOT NULL DEFAULT 0 CHECK (floor BETWEEN 0 AND 49);
+
+  -- One PG per owner. A trigger (rather than a unique index) so databases that already hold several
+  -- properties for one owner keep their data; it only blocks NEW second properties.
+  CREATE TRIGGER one_pg_per_owner BEFORE INSERT ON properties
+  WHEN EXISTS (SELECT 1 FROM properties WHERE owner_id = NEW.owner_id)
+  BEGIN
+    SELECT RAISE(ABORT, 'Each owner can manage only one PG');
+  END;
+
+  -- Tenant self-registration. registered_at is NULL while a tenant has been added by the owner but has not
+  -- yet verified their email and chosen a password (their password_hash is then the unusable value '!').
+  ALTER TABLE users ADD COLUMN registered_at TEXT;
+  UPDATE users SET registered_at = created_at;
+
+  -- One pending verification code per tenant. Only a hash of the code is stored.
+  CREATE TABLE registration_codes (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  TEXT    NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL,
+    expires_at TEXT    NOT NULL
+  );
+  `,
+  `
+  -- Tenants register with just their owner-added email and a password; the emailed verification code is gone.
+  -- Only the short-lived code table is removed. Users, passwords and registration status are untouched.
+  DROP TABLE registration_codes;
+  `,
 ];
 
-export function migrate(db) {
+// `upTo` exists so tests can build an older database and check that upgrading it keeps its data.
+export function migrate(db, upTo = migrations.length) {
   const current = db.pragma('user_version', { simple: true });
-  for (let v = current; v < migrations.length; v++) {
+  for (let v = current; v < upTo; v++) {
     db.transaction(() => {
       db.exec(migrations[v]);
       db.pragma(`user_version = ${v + 1}`);

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { Alert, Async, Badge, Button, Card, Field, FormModal, Loading, Modal, PageHeader, SecretBox, Table, useForm } from '../../components/ui.jsx';
+import { Alert, Async, Badge, Button, Card, Field, FormModal, Loading, Modal, PageHeader, Table, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
-import { formatDate, money, todayISO } from '../../lib/format.js';
+import { floorLabel, formatDate, money, todayISO } from '../../lib/format.js';
 
 // Room / start date / rent / deposit fields, shared by "Add tenant" and "Assign / change room".
 export function AssignmentFields({ form, currentRoomId, optional }) {
@@ -13,10 +13,10 @@ export function AssignmentFields({ form, currentRoomId, optional }) {
     return (
       <Alert tone="info">
         You have no rooms yet.{' '}
-        <Link to="/owner/properties" className="underline">
-          Add a property and rooms
+        <Link to="/owner/rooms" className="underline">
+          Add floors and rooms
         </Link>{' '}
-        first.
+        first. You can also add the tenant now and assign a room later.
       </Alert>
     );
   }
@@ -27,7 +27,7 @@ export function AssignmentFields({ form, currentRoomId, optional }) {
       const free = r.capacity - r.occupied;
       return {
         value: String(r.id),
-        label: `${r.property_name} · Room ${r.room_number} · ${money(r.monthly_rent)} · ${free > 0 ? `${free} bed(s) free` : 'FULL'}`,
+        label: `${floorLabel(r.floor)} · Room ${r.room_number} · ${money(r.monthly_rent)} · ${free > 0 ? `${free} bed(s) free` : 'FULL'}`,
         disabled: free <= 0 || r.id === currentRoomId,
       };
     }),
@@ -81,11 +81,19 @@ function AddTenant({ onClose, onCreated }) {
     return (
       <Modal open title="Tenant added" onClose={onClose}>
         <div className="space-y-4">
-          <p className="text-sm text-slate-700">
-            <b>{created.tenant.name}</b> can now log in with email <b>{created.tenant.email}</b> and this temporary
-            password:
-          </p>
-          <SecretBox label="Temporary password — share it with the tenant" value={created.tempPassword} />
+          <Alert tone="success">
+            <b>{created.tenant.name}</b> has been added{created.tenant.room_id ? ` to Room ${created.tenant.room_number}` : ''}.
+          </Alert>
+          <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
+            <p className="font-medium">Next, ask {created.tenant.name} to register:</p>
+            <ol className="mt-2 list-decimal space-y-1 pl-5">
+              <li>Open the app and click <b>Tenant? Register here</b> on the login page.</li>
+              <li>
+                Enter this email: <b>{created.tenant.email}</b>
+              </li>
+              <li>Choose a password and click <b>Create my account</b>.</li>
+            </ol>
+          </div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => navigate(`/owner/tenants/${created.tenant.id}`)}>
               Open tenant
@@ -98,15 +106,19 @@ function AddTenant({ onClose, onCreated }) {
   }
 
   return (
-    <FormModal open wide title="Add tenant" onClose={onClose} form={form} submitLabel="Create tenant">
-      <p className="text-sm text-slate-500">
-        This creates a login for the tenant. You will get a temporary password to share with them.
-      </p>
+    <FormModal open wide title="Add tenant" onClose={onClose} form={form} submitLabel="Add tenant">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field form={form} name="name" label="Full name" required />
-        <Field form={form} name="phone" label="Phone" type="tel" />
+        <Field form={form} name="name" label="Tenant name" required />
+        <Field form={form} name="phone" label="Phone (optional)" type="tel" />
       </div>
-      <Field form={form} name="email" label="Email (used to log in)" type="email" required />
+      <Field
+        form={form}
+        name="email"
+        label="Email"
+        type="email"
+        hint="The tenant registers with exactly this email, so type it carefully."
+        required
+      />
       <AssignmentFields form={form} optional />
     </FormModal>
   );
@@ -116,7 +128,7 @@ export default function Tenants() {
   const [params, setParams] = useSearchParams();
   const status = params.get('status') || 'active';
   const state = useApi(`/owner/tenants?status=${status}`);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(params.get('add') === '1');
 
   const tabs = [
     ['active', 'Current tenants'],
@@ -128,7 +140,7 @@ export default function Tenants() {
     <div>
       <PageHeader
         title="Tenants"
-        subtitle="Create tenant logins, assign rooms and track balances."
+        subtitle="Step 3 of 3 · Add a tenant's name and email, assign a room, and they register themselves."
         actions={<Button onClick={() => setAdding(true)}>+ Add tenant</Button>}
       />
       <div className="mb-4 flex gap-2">
@@ -172,10 +184,16 @@ export default function Tenants() {
                   key: 'room',
                   label: 'Room',
                   render: (t) =>
-                    t.room_id ? `${t.property_name} · ${t.room_number}` : <Badge status="ended">Not staying</Badge>,
+                    t.room_id ? `Room ${t.room_number}` : <Badge status="ended">Not staying</Badge>,
                 },
                 { key: 'rent', label: 'Rent', render: (t) => (t.room_id ? money(t.monthly_rent) : '—') },
                 { key: 'since', label: 'Since', render: (t) => (t.room_id ? formatDate(t.start_date) : '—') },
+                {
+                  key: 'account',
+                  label: 'Account',
+                  render: (t) =>
+                    t.registered_at ? <Badge status="paid">Registered</Badge> : <Badge status="partial">Invited, not registered</Badge>,
+                },
                 {
                   key: 'balance',
                   label: 'Balance due',
@@ -190,7 +208,20 @@ export default function Tenants() {
           )}
         </Async>
       </Card>
-      {adding && <AddTenant onClose={() => setAdding(false)} onCreated={state.reload} />}
+      {adding && (
+        <AddTenant
+          onClose={() => {
+            setAdding(false);
+            if (params.has('add')) {
+              const next = new URLSearchParams(params);
+              next.delete('add');
+              setParams(next, { replace: true });
+            }
+          }}
+          // Show "All" so a tenant added without a room doesn't seem to disappear.
+          onCreated={() => (status === 'all' ? state.reload() : setParams({ status: 'all' }))}
+        />
+      )}
     </div>
   );
 }

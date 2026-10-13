@@ -40,3 +40,12 @@ export const labels = {
 
 export const complaintCategories = ['electrical', 'plumbing', 'cleaning', 'internet', 'furniture', 'food', 'other'];
 export const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+
+// Floor 0 is the ground floor: "Ground floor", "1st floor", "2nd floor", "3rd floor", "4th floor"...
+export function floorLabel(n) {
+  if (n === 0) return 'Ground floor';
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th');
+  return `${n}${suffix} floor`;
+}
+
+export const roomStatusLabels = { vacant: 'Vacant', partial: 'Partly filled', full: 'Full' };

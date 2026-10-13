@@ -1,22 +1,13 @@
-import crypto from 'node:crypto';
 import { Router } from 'express';
 import db from '../../db.js';
-import { hashPassword } from '../../lib/auth.js';
 import { badRequest, conflict, idParam, today } from '../../lib/http.js';
 import { date, email, int, oneOf, phone, str, validate } from '../../lib/validate.js';
 import { activeTenancy, ownedRoom, ownedTenant } from './access.js';
 
 const router = Router();
 
-// Readable temporary password, e.g. "pg-7Hk2-x9Qa". Shown to the owner once; the tenant must change it.
-function temporaryPassword() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  const pick = (n) => Array.from(crypto.randomBytes(n), (b) => chars[b % chars.length]).join('');
-  return `pg-${pick(4)}-${pick(4)}`;
-}
-
 const tenantSelect = `
-  SELECT u.id, u.name, u.email, u.phone, u.created_at,
+  SELECT u.id, u.name, u.email, u.phone, u.created_at, u.registered_at,
          t.id AS tenancy_id, t.start_date, t.monthly_rent, t.deposit, t.due_day,
          r.id AS room_id, r.room_number, p.id AS property_id, p.name AS property_name,
          (SELECT COALESCE(SUM(pay.amount_due - pay.amount_paid), 0)
@@ -83,8 +74,9 @@ export function endTenancy(tenancyId, endDate) {
   ).run(tenancyId);
 }
 
-// Create a tenant login and (optionally) place them in a room in one step.
-router.post('/tenants', async (req, res) => {
+// Add a tenant to the owner's PG and (optionally) put them in a room. This does not create a login yet:
+// the tenant registers themselves with this email and chooses their own password.
+router.post('/tenants', (req, res) => {
   const data = validate(req.body, {
     name: str({ min: 2, max: 100 }),
     email: email(),
@@ -95,27 +87,28 @@ router.post('/tenants', async (req, res) => {
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(data.email)) {
     throw conflict('An account with this email already exists');
   }
-  const tempPassword = temporaryPassword();
-  const hash = await hashPassword(tempPassword);
 
   const id = db.transaction(() => {
+    // '!' can never match a real password hash, so this account cannot log in until the tenant registers.
     const { lastInsertRowid } = db
       .prepare(
-        `INSERT INTO users (role, name, email, phone, password_hash, owner_id, must_change_password)
-         VALUES ('tenant', ?, ?, ?, ?, ?, 1)`,
+        `INSERT INTO users (role, name, email, phone, password_hash, owner_id)
+         VALUES ('tenant', ?, ?, ?, '!', ?)`,
       )
-      .run(data.name, data.email, data.phone, hash, req.user.id);
+      .run(data.name, data.email, data.phone, req.user.id);
     if (assignment) placeInRoom(req.user.id, lastInsertRowid, assignment);
     return lastInsertRowid;
   })();
 
-  const tenant = db.prepare(`${tenantSelect} AND u.id = ?`).get(req.user.id, id);
-  res.status(201).json({ tenant, tempPassword });
+  res.status(201).json({ tenant: db.prepare(`${tenantSelect} AND u.id = ?`).get(req.user.id, id) });
 });
 
 router.patch('/tenants/:id', (req, res) => {
   const tenant = ownedTenant(req.user.id, idParam(req.params.id));
   const data = validate(req.body, { name: str({ min: 2, max: 100 }), email: email(), phone: phone() }, { partial: true });
+  if (data.email && data.email !== tenant.email && tenant.registered_at) {
+    throw conflict('This tenant has already registered, so their email cannot be changed');
+  }
   if (data.email && db.prepare('SELECT 1 FROM users WHERE email = ? AND id != ?').get(data.email, tenant.id)) {
     throw conflict('An account with this email already exists');
   }
@@ -124,15 +117,15 @@ router.patch('/tenants/:id', (req, res) => {
   res.json({ tenant: db.prepare(`${tenantSelect} AND u.id = ?`).get(req.user.id, tenant.id) });
 });
 
-router.post('/tenants/:id/reset-password', async (req, res) => {
+// Forgotten password / lost access: the tenant is logged out everywhere and must register again
+// with a new password, exactly like a newly added tenant.
+router.post('/tenants/:id/reset-access', (req, res) => {
   const tenant = ownedTenant(req.user.id, idParam(req.params.id));
-  const tempPassword = temporaryPassword();
-  const hash = await hashPassword(tempPassword);
   db.transaction(() => {
-    db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?').run(hash, tenant.id);
+    db.prepare("UPDATE users SET password_hash = '!', registered_at = NULL, must_change_password = 0 WHERE id = ?").run(tenant.id);
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(tenant.id);
   })();
-  res.json({ tempPassword });
+  res.json({ tenant: db.prepare(`${tenantSelect} AND u.id = ?`).get(req.user.id, tenant.id) });
 });
 
 // Assign a tenant to a room. If they already live somewhere, this is a room transfer:

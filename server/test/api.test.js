@@ -2,6 +2,7 @@
 // Run from the project root:  npm test
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import { asOwner, registerTenant, signInOwner } from './helpers.js';
 
 process.env.DB_PATH = ':memory:';
 const { default: app } = await import('../src/app.js');
@@ -32,12 +33,11 @@ function client() {
   };
 }
 
-const owner = client();
-const owner2 = client();
+const owner = asOwner(client(), 'one@example.com');
+const owner2 = asOwner(client(), 'two@example.com');
 const tenant = client();
 const anon = client();
 const ids = {};
-let tempPassword;
 
 describe('authentication', () => {
   test('protected routes need a login', async () => {
@@ -46,37 +46,24 @@ describe('authentication', () => {
     assert.equal((await anon('GET', '/api/tenant/dashboard')).status, 401);
   });
 
-  test('owner can register', async () => {
-    const r = await owner('POST', '/api/auth/register-owner', {
-      name: 'Owner One',
-      email: 'One@Example.com',
-      password: 'password123',
-    });
-    assert.equal(r.status, 201);
+  test('the configured owner can log in', async () => {
+    const r = await signInOwner(owner, 'one@example.com', 'Owner One');
     assert.equal(r.data.user.role, 'owner');
     assert.equal(r.data.user.email, 'one@example.com');
     assert.equal(r.data.user.password_hash, undefined);
+    assert.equal((await owner('GET', '/api/owner/dashboard')).status, 200);
   });
 
-  test('registration validates input and rejects duplicates', async () => {
-    const bad = await anon('POST', '/api/auth/register-owner', { name: 'x', email: 'nope', password: '123' });
-    assert.equal(bad.status, 400);
-    assert.deepEqual(Object.keys(bad.data.details).sort(), ['email', 'name', 'password']);
-    const dup = await anon('POST', '/api/auth/register-owner', {
-      name: 'Someone',
-      email: 'one@example.com',
-      password: 'password123',
-    });
-    assert.equal(dup.status, 409);
+  test('there is no owner sign-up in the API', async () => {
+    const body = { name: 'Intruder', email: 'intruder@example.com', password: 'password123' };
+    assert.equal((await anon('POST', '/api/auth/register-owner', body)).status, 404);
+    assert.equal((await owner('POST', '/api/auth/register-owner', body)).status, 404, 'not even for the owner');
+    assert.equal((await anon('POST', '/api/auth/register', body)).status, 404);
+    assert.equal((await anon('GET', '/api/auth/register-owner')).status, 404);
   });
 
-  test('second owner registers', async () => {
-    const r = await owner2('POST', '/api/auth/register-owner', {
-      name: 'Owner Two',
-      email: 'two@example.com',
-      password: 'password123',
-    });
-    assert.equal(r.status, 201);
+  test('second owner row (isolation tests)', async () => {
+    await signInOwner(owner2, 'two@example.com', 'Owner Two');
   });
 
   test('wrong password is rejected', async () => {
@@ -157,10 +144,10 @@ describe('owner: tenants', () => {
       deposit: 10000,
     });
     assert.equal(r.status, 201, JSON.stringify(r.data));
-    assert.match(r.data.tempPassword, /^pg-/);
+    assert.equal(r.data.tempPassword, undefined);
+    assert.equal(r.data.tenant.registered_at, null, 'added by the owner, not registered yet');
     assert.equal(r.data.tenant.monthly_rent, 8000);
     ids.tenant = r.data.tenant.id;
-    tempPassword = r.data.tempPassword;
   });
 
   test('full room rejects another tenant (and no account is left behind)', async () => {
@@ -203,17 +190,20 @@ describe('owner: tenants', () => {
 });
 
 describe('tenant experience', () => {
-  test('tenant logs in with temporary password and must change it', async () => {
-    const r = await tenant('POST', '/api/auth/login', { email: 'rahul@example.com', password: tempPassword });
-    assert.equal(r.status, 200);
-    assert.equal(r.data.user.mustChangePassword, true);
+  test('an owner-added tenant cannot log in until they register', async () => {
+    const r = await tenant('POST', '/api/auth/login', { email: 'rahul@example.com', password: 'password123' });
+    assert.equal(r.status, 401);
+  });
+
+  test('tenant registers with an emailed code, is logged in, and can change the password', async () => {
+    const r = await registerTenant(tenant, 'rahul@example.com', 'password123');
+    assert.equal(r.data.user.role, 'tenant');
+    assert.equal(r.data.user.mustChangePassword, false);
     const c = await tenant('POST', '/api/auth/change-password', {
-      currentPassword: tempPassword,
+      currentPassword: 'password123',
       newPassword: 'newpassword1',
     });
     assert.equal(c.status, 200);
-    const me = await tenant('GET', '/api/auth/me');
-    assert.equal(me.data.user.mustChangePassword, false);
   });
 
   test('tenant cannot use owner API and owner cannot use tenant API', async () => {
@@ -329,10 +319,12 @@ describe('move out and transfers', () => {
     assert.equal((await owner('DELETE', `/api/owner/rooms/${ids.room1}`)).status, 409);
   });
 
-  test('password reset logs the tenant out', async () => {
-    const r = await owner('POST', `/api/owner/tenants/${ids.tenant}/reset-password`);
+  test('resetting access logs the tenant out and requires registering again', async () => {
+    const r = await owner('POST', `/api/owner/tenants/${ids.tenant}/reset-access`);
     assert.equal(r.status, 200);
+    assert.equal(r.data.tenant.registered_at, null);
     assert.equal((await tenant('GET', '/api/auth/me')).status, 401);
+    assert.equal((await tenant('POST', '/api/auth/login', { email: 'rahul@example.com', password: 'newpassword1' })).status, 401);
   });
 
   test('logout ends the session', async () => {

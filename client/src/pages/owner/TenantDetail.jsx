@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Async, Badge, Button, Card, Field, FormModal, Modal, PageHeader, SecretBox, Table, useConfirm, useForm } from '../../components/ui.jsx';
+import { Async, Badge, Button, Card, Field, FormModal, PageHeader, Table, useConfirm, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { formatDate, formatPeriod, money, todayISO } from '../../lib/format.js';
 import { AssignmentFields, assignmentBody } from './Tenants.jsx';
@@ -13,7 +13,15 @@ function EditTenant({ tenant, onClose, onSaved }) {
   return (
     <FormModal open title="Edit tenant details" onClose={onClose} form={form}>
       <Field form={form} name="name" label="Full name" required />
-      <Field form={form} name="email" label="Email (login)" type="email" required />
+      <Field
+        form={form}
+        name="email"
+        label="Email (login)"
+        type="email"
+        disabled={Boolean(tenant.registered_at)}
+        hint={tenant.registered_at ? 'Cannot be changed after the tenant has registered.' : 'Fix a typo here before the tenant registers.'}
+        required
+      />
       <Field form={form} name="phone" label="Phone" type="tel" />
     </FormModal>
   );
@@ -79,7 +87,6 @@ export default function TenantDetail() {
   const { id } = useParams();
   const state = useApi(`/owner/tenants/${id}`);
   const [dialog, setDialog] = useState(null); // 'edit' | 'assign' | 'moveout'
-  const [tempPassword, setTempPassword] = useState(null);
   const confirm = useConfirm();
 
   const done = () => {
@@ -96,7 +103,7 @@ export default function TenantDetail() {
           </Link>
           <PageHeader
             title={tenant.name}
-            subtitle={`${tenant.email}${tenant.phone ? ` · ${tenant.phone}` : ''}`}
+            subtitle={`${tenant.email}${tenant.phone ? ` · ${tenant.phone}` : ''} · ${tenant.registered_at ? 'Registered' : 'Invited, not registered yet'}`}
             actions={
               <>
                 <Button variant="secondary" onClick={() => setDialog('edit')}>
@@ -115,23 +122,25 @@ export default function TenantDetail() {
                     Move out
                   </Button>
                 )}
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    confirm.ask({
-                      title: 'Reset password?',
-                      message: `${tenant.name} will be logged out and must log in with a new temporary password.`,
-                      confirmLabel: 'Reset password',
-                      variant: 'primary',
-                      onConfirm: async () => {
-                        const d = await api(`/owner/tenants/${tenant.id}/reset-password`, { method: 'POST' });
-                        setTempPassword(d.tempPassword);
-                      },
-                    })
-                  }
-                >
-                  Reset password
-                </Button>
+                {tenant.registered_at && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      confirm.ask({
+                        title: 'Reset access?',
+                        message: `${tenant.name} will be logged out everywhere and their password will stop working. To get back in, they register again on the tenant registration page with their email and choose a new password. Their room, rent and history are kept.`,
+                        confirmLabel: 'Reset access',
+                        variant: 'primary',
+                        onConfirm: async () => {
+                          await api(`/owner/tenants/${tenant.id}/reset-access`, { method: 'POST' });
+                          state.reload();
+                        },
+                      })
+                    }
+                  >
+                    Reset access
+                  </Button>
+                )}
               </>
             }
           />
@@ -141,7 +150,7 @@ export default function TenantDetail() {
               {tenant.room_id ? (
                 <div className="space-y-1 text-sm">
                   <p className="text-lg font-semibold">
-                    {tenant.property_name} · {tenant.room_number}
+                    Room {tenant.room_number}
                   </p>
                   <p>Since {formatDate(tenant.start_date)}</p>
                 </div>
@@ -202,12 +211,6 @@ export default function TenantDetail() {
           {dialog === 'assign' && <AssignRoom tenant={tenant} onClose={() => setDialog(null)} onSaved={done} />}
           {dialog === 'rent' && <EditRent tenant={tenant} onClose={() => setDialog(null)} onSaved={done} />}
           {dialog === 'moveout' && <MoveOut tenant={tenant} onClose={() => setDialog(null)} onSaved={done} />}
-          <Modal open={Boolean(tempPassword)} title="New temporary password" onClose={() => setTempPassword(null)}>
-            <SecretBox label={`Share this with ${tenant.name}:`} value={tempPassword || ''} />
-            <div className="mt-4 flex justify-end">
-              <Button onClick={() => setTempPassword(null)}>Done</Button>
-            </div>
-          </Modal>
           {confirm.element}
         </div>
       )}

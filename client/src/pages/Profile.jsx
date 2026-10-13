@@ -35,6 +35,14 @@ export default function Profile() {
     <div className="max-w-2xl space-y-6">
       <PageHeader title="My Account" subtitle={user.email} />
 
+      {user.role === 'owner' ? (
+        <Card title="Password">
+          <p className="text-sm text-slate-600">
+            The owner password is set in the server configuration (<code>OWNER_PASSWORD</code> in <code>server/.env</code>). To
+            change it, edit that file and restart the server.
+          </p>
+        </Card>
+      ) : (
       <Card title="Change password">
         <form onSubmit={pw.handleSubmit} className="space-y-4" noValidate>
           <Alert>{pw.error}</Alert>
@@ -47,6 +55,7 @@ export default function Profile() {
           </Button>
         </form>
       </Card>
+      )}
 
       {!user.mustChangePassword && (
         <Card title="Profile details">

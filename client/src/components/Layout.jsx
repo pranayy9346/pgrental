@@ -6,8 +6,9 @@ import { Alert, Loading } from './ui.jsx';
 const navs = {
   owner: [
     { to: '/owner', label: 'Dashboard', end: true },
-    { to: '/owner/properties', label: 'Properties & Rooms' },
-    { to: '/owner/tenants', label: 'Tenants' },
+    { to: '/owner/pg', label: '1. PG Details' },
+    { to: '/owner/rooms', label: '2. Floors & Rooms' },
+    { to: '/owner/tenants', label: '3. Tenants' },
     { to: '/owner/payments', label: 'Rent & Payments' },
     { to: '/owner/complaints', label: 'Complaints' },
     { to: '/owner/vacate-requests', label: 'Move-out Requests' },

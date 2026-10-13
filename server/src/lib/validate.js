@@ -67,13 +67,13 @@ export const phone = ({ optional = true } = {}) =>
     return s;
   }, optional);
 
-export const password = () =>
+export const password = ({ optional = false } = {}) =>
   optionalWrap((v) => {
     if (typeof v !== 'string') throw new Error('Must be text');
     if (v.length < 8) throw new Error('Must be at least 8 characters');
     if (v.length > 128) throw new Error('Must be at most 128 characters');
     return v;
-  }, false);
+  }, optional);
 
 export const date = ({ optional = false } = {}) =>
   optionalWrap((v) => {
