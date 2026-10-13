@@ -26,3 +26,9 @@ export function currentPeriod(date = new Date()) {
 export function today() {
   return new Date().toISOString().slice(0, 10);
 }
+
+// Current UTC time as 'YYYY-MM-DD HH:MM:SS' (the same format the database defaults use), so the application can
+// pass timestamps as parameters instead of using database-specific functions such as datetime('now').
+export function nowStamp() {
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}

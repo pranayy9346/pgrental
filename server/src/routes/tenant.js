@@ -2,90 +2,93 @@
 import { Router } from 'express';
 import db from '../db.js';
 import { requireRole } from '../lib/auth.js';
-import { badRequest, conflict, currentPeriod, idParam, notFound, today } from '../lib/http.js';
+import { badRequest, conflict, currentPeriod, idParam, notFound, nowStamp, today } from '../lib/http.js';
 import { date, oneOf, str, validate } from '../lib/validate.js';
 
 const router = Router();
 router.use(requireRole('tenant'));
 
-function currentStay(tenantId) {
+async function currentStay(tenantId) {
   return (
-    db
-      .prepare(
-        `SELECT t.id, t.start_date, t.monthly_rent, t.deposit, t.due_day,
-                r.room_number, r.capacity, r.notes AS room_notes,
-                p.id AS property_id, p.name AS property_name, p.address, p.city,
-                o.name AS owner_name, o.phone AS owner_phone, o.email AS owner_email,
-                (SELECT COUNT(*) FROM tenancies x WHERE x.room_id = r.id AND x.status = 'active') AS occupied
-         FROM tenancies t JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
-         JOIN users o ON o.id = p.owner_id
-         WHERE t.tenant_id = ? AND t.status = 'active'`,
-      )
-      .get(tenantId) || null
+    (await db.get(
+      `SELECT t.id, t.start_date, t.monthly_rent, t.deposit, t.due_day,
+              r.room_number, r.capacity, r.notes AS room_notes,
+              p.id AS property_id, p.name AS property_name, p.address, p.city,
+              o.name AS owner_name, o.phone AS owner_phone, o.email AS owner_email,
+              (SELECT COUNT(*) FROM tenancies x WHERE x.room_id = r.id AND x.status = 'active') AS occupied
+       FROM tenancies t JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
+       JOIN users o ON o.id = p.owner_id
+       WHERE t.tenant_id = ? AND t.status = 'active'`,
+      [tenantId],
+    )) || null
   );
 }
 
-const paymentsFor = db.prepare(`
-  SELECT pay.id, pay.period, pay.amount_due, pay.amount_paid, pay.status, pay.due_date, pay.paid_on,
-         pay.method, pay.note, r.room_number, p.name AS property_name
-  FROM payments pay JOIN tenancies t ON t.id = pay.tenancy_id
-  JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
-  WHERE t.tenant_id = ? ORDER BY pay.period DESC
-`);
+const paymentsFor = (tenantId) =>
+  db.all(
+    `SELECT pay.id, pay.period, pay.amount_due, pay.amount_paid, pay.status, pay.due_date, pay.paid_on,
+            pay.method, pay.note, r.room_number, p.name AS property_name
+     FROM payments pay JOIN tenancies t ON t.id = pay.tenancy_id
+     JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
+     WHERE t.tenant_id = ? ORDER BY pay.period DESC`,
+    [tenantId],
+  );
 
-const vacateFor = db.prepare(`
-  SELECT v.id, v.requested_date, v.reason, v.status, v.owner_note, v.created_at, v.decided_at,
-         r.room_number, p.name AS property_name
-  FROM vacate_requests v JOIN tenancies t ON t.id = v.tenancy_id
-  JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
-  WHERE t.tenant_id = ? ORDER BY v.created_at DESC, v.id DESC
-`);
+const vacateFor = (tenantId) =>
+  db.all(
+    `SELECT v.id, v.requested_date, v.reason, v.status, v.owner_note, v.created_at, v.decided_at,
+            r.room_number, p.name AS property_name
+     FROM vacate_requests v JOIN tenancies t ON t.id = v.tenancy_id
+     JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
+     WHERE t.tenant_id = ? ORDER BY v.created_at DESC, v.id DESC`,
+    [tenantId],
+  );
 
-const noticesFor = db.prepare(`
-  SELECT n.id, n.title, n.body, n.created_at FROM notices n
-  WHERE n.property_id = ? ORDER BY n.created_at DESC, n.id DESC
-`);
+const noticesFor = (propertyId) =>
+  db.all(
+    `SELECT n.id, n.title, n.body, n.created_at FROM notices n
+     WHERE n.property_id = ? ORDER BY n.created_at DESC, n.id DESC`,
+    [propertyId],
+  );
 
-router.get('/dashboard', (req, res) => {
-  const stay = currentStay(req.user.id);
-  const payments = paymentsFor.all(req.user.id);
+router.get('/dashboard', async (req, res) => {
+  const stay = await currentStay(req.user.id);
+  const payments = await paymentsFor(req.user.id);
   const thisMonth = payments.find((p) => p.period === currentPeriod()) || null;
   const balanceDue = payments.reduce((sum, p) => sum + (p.amount_due - p.amount_paid), 0);
-  const notices = stay ? noticesFor.all(stay.property_id).slice(0, 5) : [];
-  const { open_complaints } = db
-    .prepare(
-      `SELECT COUNT(*) AS open_complaints FROM complaints c JOIN tenancies t ON t.id = c.tenancy_id
-       WHERE t.tenant_id = ? AND c.status != 'resolved'`,
-    )
-    .get(req.user.id);
-  const vacateRequest = vacateFor.all(req.user.id).find((v) => v.status === 'pending') || null;
+  const notices = stay ? (await noticesFor(stay.property_id)).slice(0, 5) : [];
+  const { open_complaints } = await db.get(
+    `SELECT COUNT(*) AS open_complaints FROM complaints c JOIN tenancies t ON t.id = c.tenancy_id
+     WHERE t.tenant_id = ? AND c.status != 'resolved'`,
+    [req.user.id],
+  );
+  const vacateRequest = (await vacateFor(req.user.id)).find((v) => v.status === 'pending') || null;
   res.json({ stay, thisMonth, balanceDue, notices, openComplaints: open_complaints, vacateRequest });
 });
 
-router.get('/payments', (req, res) => {
-  res.json({ payments: paymentsFor.all(req.user.id) });
+router.get('/payments', async (req, res) => {
+  res.json({ payments: await paymentsFor(req.user.id) });
 });
 
-router.get('/notices', (req, res) => {
-  const stay = currentStay(req.user.id);
-  res.json({ notices: stay ? noticesFor.all(stay.property_id) : [] });
+router.get('/notices', async (req, res) => {
+  const stay = await currentStay(req.user.id);
+  res.json({ notices: stay ? await noticesFor(stay.property_id) : [] });
 });
 
-router.get('/complaints', (req, res) => {
-  const complaints = db
-    .prepare(
-      `SELECT c.id, c.title, c.description, c.category, c.status, c.owner_reply, c.created_at, c.updated_at,
-              r.room_number, p.name AS property_name
-       FROM complaints c JOIN tenancies t ON t.id = c.tenancy_id
-       JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
-       WHERE t.tenant_id = ? ORDER BY c.created_at DESC, c.id DESC`,
-    )
-    .all(req.user.id);
+router.get('/complaints', async (req, res) => {
+  const complaints = await db.all(
+    `SELECT c.id, c.title, c.description, c.category, c.status, c.owner_reply, c.created_at, c.updated_at,
+            r.room_number, p.name AS property_name
+     FROM complaints c JOIN tenancies t ON t.id = c.tenancy_id
+     JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
+     WHERE t.tenant_id = ? ORDER BY c.created_at DESC, c.id DESC`,
+    [req.user.id],
+  );
   res.json({ complaints });
 });
 
-router.post('/complaints', (req, res) => {
-  const stay = currentStay(req.user.id);
+router.post('/complaints', async (req, res) => {
+  const stay = await currentStay(req.user.id);
   if (!stay) throw conflict('You can raise a complaint only while you have an active stay');
   const data = validate(req.body, {
     title: str({ min: 3, max: 150 }),
@@ -94,20 +97,23 @@ router.post('/complaints', (req, res) => {
       optional: true,
     }),
   });
-  const { lastInsertRowid } = db
-    .prepare('INSERT INTO complaints (tenancy_id, title, description, category) VALUES (?, ?, ?, ?)')
-    .run(stay.id, data.title, data.description, data.category ?? 'other');
-  res.status(201).json({ complaint: db.prepare('SELECT * FROM complaints WHERE id = ?').get(lastInsertRowid) });
+  const id = await db.insert('INSERT INTO complaints (tenancy_id, title, description, category) VALUES (?, ?, ?, ?)', [
+    stay.id,
+    data.title,
+    data.description,
+    data.category ?? 'other',
+  ]);
+  res.status(201).json({ complaint: await db.get('SELECT * FROM complaints WHERE id = ?', [id]) });
 });
 
 // ---- Vacate (move-out) requests ----
 
-router.get('/vacate-requests', (req, res) => {
-  res.json({ requests: vacateFor.all(req.user.id) });
+router.get('/vacate-requests', async (req, res) => {
+  res.json({ requests: await vacateFor(req.user.id) });
 });
 
-router.post('/vacate-requests', (req, res) => {
-  const stay = currentStay(req.user.id);
+router.post('/vacate-requests', async (req, res) => {
+  const stay = await currentStay(req.user.id);
   if (!stay) throw conflict('You do not have an active stay');
   const data = validate(req.body, { requested_date: date(), reason: str({ max: 500, optional: true }) });
   if (data.requested_date < today()) {
@@ -116,26 +122,25 @@ router.post('/vacate-requests', (req, res) => {
   if (data.requested_date < stay.start_date) {
     throw badRequest('Please correct the highlighted fields', { requested_date: 'Cannot be before your move-in date' });
   }
-  if (db.prepare("SELECT 1 FROM vacate_requests WHERE tenancy_id = ? AND status = 'pending'").get(stay.id)) {
+  if (await db.get("SELECT 1 AS ok FROM vacate_requests WHERE tenancy_id = ? AND status = 'pending'", [stay.id])) {
     throw conflict('You already have a pending request. Cancel it first to submit a new one.');
   }
-  db.prepare('INSERT INTO vacate_requests (tenancy_id, requested_date, reason) VALUES (?, ?, ?)').run(
+  await db.run('INSERT INTO vacate_requests (tenancy_id, requested_date, reason) VALUES (?, ?, ?)', [
     stay.id,
     data.requested_date,
     data.reason,
-  );
-  res.status(201).json({ requests: vacateFor.all(req.user.id) });
+  ]);
+  res.status(201).json({ requests: await vacateFor(req.user.id) });
 });
 
-router.post('/vacate-requests/:id/cancel', (req, res) => {
-  const result = db
-    .prepare(
-      `UPDATE vacate_requests SET status = 'cancelled', decided_at = datetime('now')
-       WHERE id = ? AND status = 'pending' AND tenancy_id IN (SELECT id FROM tenancies WHERE tenant_id = ?)`,
-    )
-    .run(idParam(req.params.id), req.user.id);
+router.post('/vacate-requests/:id/cancel', async (req, res) => {
+  const result = await db.run(
+    `UPDATE vacate_requests SET status = 'cancelled', decided_at = ?
+     WHERE id = ? AND status = 'pending' AND tenancy_id IN (SELECT id FROM tenancies WHERE tenant_id = ?)`,
+    [nowStamp(), idParam(req.params.id), req.user.id],
+  );
   if (!result.changes) throw notFound('Pending request');
-  res.json({ requests: vacateFor.all(req.user.id) });
+  res.json({ requests: await vacateFor(req.user.id) });
 });
 
 export default router;

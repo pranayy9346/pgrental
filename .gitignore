@@ -28,3 +28,15 @@ npm-debug.log*
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+
+# Deployment tool folders and local exports/backups (may contain personal data or password hashes)
+.vercel/
+.render/
+*.dump
+*.sql.gz
+pg-export-*.json
+.neon
+
+# AI assistant tooling (third-party skill docs and lock file; not part of the application)
+.claude/
+skills-lock.json

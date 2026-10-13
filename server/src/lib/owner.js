@@ -15,7 +15,7 @@ import { email, password, str, validate } from './validate.js';
 export async function ensureOwner() {
   const rawEmail = process.env.OWNER_EMAIL;
   const rawPassword = process.env.OWNER_PASSWORD;
-  if (!rawEmail && !rawPassword) return { status: 'unconfigured', email: null, disabledOwners: countDisabled(null) };
+  if (!rawEmail && !rawPassword) return { status: 'unconfigured', email: null, disabledOwners: await countDisabled(null) };
 
   let config;
   try {
@@ -28,13 +28,14 @@ export async function ensureOwner() {
     throw new Error(`The owner settings are not valid. ${problems.join('; ') || err.message}`);
   }
 
-  const existing = db.prepare('SELECT * FROM users WHERE email = ?').get(config.email);
+  const existing = await db.get('SELECT * FROM users WHERE lower(email) = ?', [config.email]);
   let status;
   if (!existing) {
-    db.prepare(
+    await db.run(
       `INSERT INTO users (role, name, email, password_hash, registered_at)
        VALUES ('owner', ?, ?, ?, ?)`,
-    ).run(config.name ?? 'PG Owner', config.email, await hashPassword(config.password), new Date().toISOString());
+      [config.name ?? 'PG Owner', config.email, await hashPassword(config.password), new Date().toISOString()],
+    );
     status = 'created';
   } else if (existing.role !== 'owner') {
     throw new Error(`OWNER_EMAIL (${config.email}) already belongs to a tenant account. Choose a different owner email.`);
@@ -42,17 +43,17 @@ export async function ensureOwner() {
     status = 'unchanged';
   } else {
     const hash = await hashPassword(config.password);
-    db.transaction(() => {
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, existing.id);
-      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id); // log out anyone using the old password
-    })();
+    await db.transaction(async (tx) => {
+      await tx.run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, existing.id]);
+      await tx.run('DELETE FROM sessions WHERE user_id = ?', [existing.id]); // log out anyone using the old password
+    });
     status = 'updated';
   }
-  return { status, email: config.email, disabledOwners: countDisabled(config.email) };
+  return { status, email: config.email, disabledOwners: await countDisabled(config.email) };
 }
 
 // Owner rows from older databases that are not the configured owner. They are kept but cannot log in.
-function countDisabled(keepEmail) {
+async function countDisabled(keepEmail) {
   const email = keepEmail ?? configuredOwnerEmail() ?? '';
-  return db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND lower(email) != ?").get(email).n;
+  return (await db.get("SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND lower(email) != ?", [email])).n;
 }

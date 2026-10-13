@@ -1,0 +1,35 @@
+# Render Blueprint for the backend API (free web service). Nothing happens until you connect this repository
+# on Render. Values marked `sync: false` are NOT stored in this file: Render asks you to type them in its dashboard.
+services:
+  - type: web
+    name: pg-rental-api
+    runtime: node
+    plan: free
+    # Same region as the Neon database (aws-ap-southeast-1 = Singapore): every query otherwise crosses an ocean.
+    region: singapore
+    # Install only the backend's packages (no dev tools, no SQLite native module).
+    buildCommand: npm ci --workspace server --omit=dev --omit=optional
+    startCommand: npm run start --workspace server
+    # Cheap liveness check that does not wake the database. (/api/health/db also checks the database.)
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # --- secrets and addresses: type these into the Render dashboard ---
+      - key: DATABASE_URL # PostgreSQL connection string, e.g. from Neon (include ?sslmode=require)
+        sync: false
+      - key: DATABASE_URL_UNPOOLED # optional: Neon's direct (non-pooler) string, used only for schema migrations at start-up
+        sync: false
+      - key: OWNER_EMAIL # the one owner login
+        sync: false
+      - key: OWNER_PASSWORD # at least 8 characters
+        sync: false
+      - key: CLIENT_ORIGINS # your Vercel address, e.g. https://pg-rental.vercel.app (no trailing slash)
+        sync: false
+      # --- settings for a frontend on another site (Vercel) calling this API directly ---
+      - key: COOKIE_SAMESITE
+        value: none
+      - key: TRUST_PROXY # Render puts one proxy in front of the app
+        value: "1"

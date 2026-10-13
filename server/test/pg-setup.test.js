@@ -1,7 +1,6 @@
 // One PG per owner, floors and rooms, room capacity limits, and owner isolation.
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
-import Database from 'better-sqlite3';
 import { asOwner, signInOwner } from './helpers.js';
 import { migrate } from '../src/schema.js';
 
@@ -81,16 +80,16 @@ describe('PG details (one PG per owner)', () => {
     assert.equal(r.data.pg.id, ids.pgA);
     assert.equal(r.data.pg.name, 'Sunrise PG Deluxe');
     assert.equal(r.data.pg.address, '12 MG Road', 'fields that were not sent are kept');
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM properties WHERE owner_id = (SELECT id FROM users WHERE email = ?)').get('a@x.com').n, 1);
+    assert.equal((await db.get('SELECT COUNT(*) AS n FROM properties WHERE owner_id = (SELECT id FROM users WHERE email = ?)', ['a@x.com'])).n, 1);
   });
 
   test('a second PG is refused by the API and by the database', async () => {
     const r = await ownerA('POST', '/api/owner/properties', { name: 'Second', address: '2 Road', city: 'Pune' });
     assert.equal(r.status, 409);
     assert.match(r.data.error, /exactly one PG/);
-    const ownerId = db.prepare("SELECT id FROM users WHERE email = 'a@x.com'").get().id;
-    assert.throws(
-      () => db.prepare("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'Sneaky', 'x', 'y')").run(ownerId),
+    const ownerId = (await db.get("SELECT id FROM users WHERE email = 'a@x.com'")).id;
+    await assert.rejects(
+      db.run("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'Sneaky', 'x', 'y')", [ownerId]),
       /only one PG/,
     );
   });
@@ -197,7 +196,7 @@ describe('capacity limits', () => {
     const r = await addTenant(ownerA, 3, ids.r101);
     assert.equal(r.status, 409);
     assert.match(r.data.error, /full/);
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE email = 't3@x.com'").get(), undefined);
+    assert.equal((await db.get("SELECT 1 FROM users WHERE email = 't3@x.com'")), undefined);
   });
 
   test('a single-bed room takes exactly one tenant', async () => {
@@ -206,7 +205,7 @@ describe('capacity limits', () => {
   });
 
   test('moving an existing tenant into a full room is refused; into a free room it works', async () => {
-    const t4 = db.prepare("SELECT id FROM users WHERE email = 't4@x.com'").get().id;
+    const t4 = (await db.get("SELECT id FROM users WHERE email = 't4@x.com'")).id;
     assert.equal((await ownerA('POST', `/api/owner/tenants/${t4}/assign`, { room_id: ids.r101, start_date: '2026-02-01' })).status, 409);
     assert.equal((await ownerA('GET', `/api/owner/tenants/${t4}`)).data.tenant.room_number, '103', 'still in the old room');
     assert.equal((await ownerA('POST', `/api/owner/tenants/${t4}/assign`, { room_id: ids.g1, start_date: '2026-02-01' })).status, 200);
@@ -239,7 +238,10 @@ describe('only owners manage the PG', () => {
 });
 
 describe('upgrading an existing database', () => {
-  test('data is kept; old rooms land on the ground floor; existing accounts count as registered', () => {
+  // This builds an old SQLite database on its own, so it only makes sense when the SQLite driver is in use.
+  // The PostgreSQL equivalent is in pg-migrations.test.js.
+  test('data is kept; old rooms land on the ground floor; existing accounts count as registered', { skip: db.dialect !== 'sqlite' && 'SQLite only' }, async () => {
+    const { default: Database } = await import('better-sqlite3');
     const old = new Database(':memory:');
     old.pragma('foreign_keys = ON');
     migrate(old, 2); // the schema as it was before floors and tenant registration
@@ -266,9 +268,9 @@ describe('upgrading an existing database', () => {
   });
 
   test('an owner who already has several properties keeps working: the first one is their PG', async () => {
-    db.exec('DROP TRIGGER one_pg_per_owner');
-    const ownerId = db.prepare("SELECT id FROM users WHERE email = 'a@x.com'").get().id;
-    db.prepare("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'Legacy extra', 'x', 'y')").run(ownerId);
+    await db.exec(db.dialect === 'sqlite' ? 'DROP TRIGGER one_pg_per_owner' : 'DROP TRIGGER one_pg_per_owner ON properties');
+    const ownerId = (await db.get("SELECT id FROM users WHERE email = 'a@x.com'")).id;
+    (await db.run("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'Legacy extra', 'x', 'y')", [ownerId]));
     const r = await ownerA('GET', '/api/owner/pg');
     assert.equal(r.data.pg.id, ids.pgA);
     assert.equal((await ownerA('PUT', '/api/owner/pg', { city: 'Mumbai' })).data.pg.id, ids.pgA);

@@ -28,19 +28,19 @@ router.post('/login', async (req, res) => {
   const key = `${req.ip}|${data.email}`;
   checkLoginRate(key);
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(data.email);
+  const user = await db.get('SELECT * FROM users WHERE lower(email) = ?', [data.email]);
   const ok = user && mayUseApp(user) ? await verifyPassword(data.password, user.password_hash) : await verifyAgainstDummy(data.password);
   if (!ok) {
     recordLoginFailure(key);
     throw new HttpError(401, 'Incorrect email or password');
   }
   clearLoginFailures(key);
-  createSession(res, user.id);
+  await createSession(res, user.id);
   res.json({ user: publicUser(user) });
 });
 
-router.post('/logout', (req, res) => {
-  destroySession(req, res);
+router.post('/logout', async (req, res) => {
+  await destroySession(req, res);
   res.json({ ok: true });
 });
 
@@ -49,11 +49,11 @@ router.get('/me', requireAuth, (req, res) => {
 });
 
 // Users may edit their own name and phone. Email changes are not allowed for tenants (the owner manages them).
-router.patch('/profile', requireAuth, (req, res) => {
+router.patch('/profile', requireAuth, async (req, res) => {
   const data = validate(req.body, { name: str({ min: 2, max: 100 }), phone: phone() }, { partial: true });
   const sets = Object.keys(data).map((k) => `${k} = @${k}`);
-  db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = @id`).run({ ...data, id: req.user.id });
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  await db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = @id`, { ...data, id: req.user.id });
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   res.json({ user: publicUser(user) });
 });
 
@@ -62,7 +62,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
     throw new HttpError(403, 'The owner password is set in the server configuration (OWNER_PASSWORD), not in the app.');
   }
   const data = validate(req.body, { currentPassword: str({ max: 128 }), newPassword: password() });
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
   if (!(await verifyPassword(data.currentPassword, user.password_hash))) {
     throw badRequest('Please correct the highlighted fields', { currentPassword: 'Current password is incorrect' });
   }
@@ -70,8 +70,8 @@ router.post('/change-password', requireAuth, async (req, res) => {
     throw badRequest('Please correct the highlighted fields', { newPassword: 'Choose a different password' });
   }
   const hash = await hashPassword(data.newPassword);
-  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hash, user.id);
-  destroyOtherSessions(user.id, req); // log out other devices
+  await db.run('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?', [hash, user.id]);
+  await destroyOtherSessions(user.id, req); // log out other devices
   res.json({ ok: true });
 });
 
@@ -91,7 +91,7 @@ router.post('/tenant/register', async (req, res) => {
   registerFailures.check(req.ip);
 
   // Only tenant rows count: an owner's email is treated like any other email the owner has not added.
-  const tenant = db.prepare("SELECT id, registered_at FROM users WHERE email = ? AND role = 'tenant'").get(data.email);
+  const tenant = await db.get("SELECT id, registered_at FROM users WHERE lower(email) = ? AND role = 'tenant'", [data.email]);
   if (!tenant) {
     registerFailures.fail(req.ip);
     throw new HttpError(404, 'This email has not been added by a PG owner. Ask your owner to add it on the Tenants page first.');
@@ -104,16 +104,15 @@ router.post('/tenant/register', async (req, res) => {
   const hash = await hashPassword(data.password);
   // The WHERE clause makes this the single point of truth: if two requests race, only one can still find the
   // account unregistered, so exactly one succeeds and the other gets the "already exists" answer.
-  const claimed = db
-    .prepare(
-      `UPDATE users SET password_hash = ?, registered_at = ?, must_change_password = 0
-       WHERE id = ? AND role = 'tenant' AND registered_at IS NULL`,
-    )
-    .run(hash, new Date().toISOString(), tenant.id);
+  const claimed = await db.run(
+    `UPDATE users SET password_hash = ?, registered_at = ?, must_change_password = 0
+     WHERE id = ? AND role = 'tenant' AND registered_at IS NULL`,
+    [hash, new Date().toISOString(), tenant.id],
+  );
   if (claimed.changes !== 1) throw alreadyRegistered();
 
-  createSession(res, tenant.id);
-  res.status(201).json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(tenant.id)) });
+  await createSession(res, tenant.id);
+  res.status(201).json({ user: publicUser(await db.get('SELECT * FROM users WHERE id = ?', [tenant.id])) });
 });
 
 export default router;

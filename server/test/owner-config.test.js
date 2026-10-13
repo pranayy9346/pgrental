@@ -37,7 +37,7 @@ function client() {
 
 const anon = client();
 const owner = client();
-const owners = () => db.prepare("SELECT * FROM users WHERE role = 'owner'").all();
+const owners = () => db.all("SELECT * FROM users WHERE role = 'owner'");
 const login = (c, email, password) => c('POST', '/api/auth/login', { email, password });
 const setConfig = (email, password) => {
   process.env.OWNER_EMAIL = email;
@@ -46,15 +46,15 @@ const setConfig = (email, password) => {
 const restoreConfig = () => setConfig('Boss@Example.com', 'Str0ng-owner-pass');
 
 describe('configuring the owner', () => {
-  test('before the server has set anything up there is no owner', () => {
-    assert.equal(owners().length, 0);
+  test('before the server has set anything up there is no owner', async () => {
+    assert.equal((await owners()).length, 0);
   });
 
   test('startup creates exactly one owner, with a hashed password', async () => {
     const r = await ensureOwner();
     assert.equal(r.status, 'created');
     assert.equal(r.email, 'boss@example.com');
-    const rows = owners();
+    const rows = (await owners());
     assert.equal(rows.length, 1);
     assert.equal(rows[0].name, 'The Boss');
     assert.equal(rows[0].email, 'boss@example.com');
@@ -63,10 +63,10 @@ describe('configuring the owner', () => {
   });
 
   test('running startup again changes nothing', async () => {
-    const before = owners()[0];
+    const before = (await owners())[0];
     assert.equal((await ensureOwner()).status, 'unchanged');
-    assert.equal(owners().length, 1);
-    assert.equal(owners()[0].password_hash, before.password_hash);
+    assert.equal((await owners()).length, 1);
+    assert.equal((await owners())[0].password_hash, before.password_hash);
   });
 });
 
@@ -129,8 +129,8 @@ describe('no way to become an owner', () => {
     await owner('PATCH', '/api/auth/profile', { role: 'owner', name: 'Boss Man' });
     await client()('POST', '/api/auth/tenant/register', { ...body, role: 'owner' }); // the owner added this email as a tenant above
     await client()('POST', '/api/auth/login', { ...body, role: 'owner' });
-    assert.equal(owners().length, 1);
-    assert.equal(db.prepare("SELECT role FROM users WHERE email = 'intruder@example.com'").get()?.role, 'tenant', 'only a tenant could be created');
+    assert.equal((await owners()).length, 1);
+    assert.equal((await db.get("SELECT role FROM users WHERE email = 'intruder@example.com'"))?.role, 'tenant', 'only a tenant could be created');
   });
 
   test('the owner-only API refuses everyone who is not logged in as the owner', async () => {
@@ -160,16 +160,16 @@ describe('tenants still register with an owner-added email', () => {
   test('an email the owner did not add cannot register and gets no account', async () => {
     const stranger = client();
     assert.equal((await stranger('POST', '/api/auth/tenant/register', { email: 'stranger@x.com', password: 'password123' })).status, 404);
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE email = 'stranger@x.com'").get(), undefined);
+    assert.equal((await db.get("SELECT 1 FROM users WHERE email = 'stranger@x.com'")), undefined);
   });
 
   test('the owner’s own email cannot be used to register as a tenant', async () => {
     assert.equal((await anon('POST', '/api/auth/tenant/register', { email: 'boss@example.com', password: 'password123' })).status, 404);
-    assert.equal(owners().length, 1);
+    assert.equal((await owners()).length, 1);
   });
 
   test('resetting access still sends the tenant back through registration', async () => {
-    const tid = db.prepare("SELECT id FROM users WHERE email = 'tia@x.com'").get().id;
+    const tid = (await db.get("SELECT id FROM users WHERE email = 'tia@x.com'")).id;
     assert.equal((await owner('POST', `/api/owner/tenants/${tid}/reset-access`)).status, 200);
     assert.equal((await login(client(), 'tia@x.com', 'tiaPassword1')).status, 401);
     const again = client();
@@ -189,7 +189,7 @@ describe('changing the configured password', () => {
     assert.equal((await session('GET', '/api/auth/me')).status, 401, 'old session ended');
     assert.equal((await login(client(), 'boss@example.com', 'Str0ng-owner-pass')).status, 401, 'old password is dead');
     assert.equal((await login(client(), 'boss@example.com', 'Brand-new-pass-9')).status, 200);
-    assert.equal(owners().length, 1);
+    assert.equal((await owners()).length, 1);
     restoreConfig();
     await ensureOwner();
   });
@@ -198,15 +198,13 @@ describe('changing the configured password', () => {
 describe('existing databases', () => {
   test('an owner row with the configured email is adopted and keeps its data', async () => {
     const hash = await hashPassword('old-password-1');
-    const id = db
-      .prepare("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'Old Owner', 'legacy@x.com', ?)")
-      .run(hash).lastInsertRowid;
-    db.prepare("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'Legacy PG', 'a', 'c')").run(id);
+    const id = await db.insert("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'Old Owner', 'legacy@x.com', ?)", [hash]);
+    (await db.run("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'Legacy PG', 'a', 'c')", [id]));
 
     setConfig('legacy@x.com', 'Legacy-new-pass-1');
     const r = await ensureOwner();
     assert.equal(r.status, 'updated');
-    assert.equal(db.prepare("SELECT id FROM users WHERE email = 'legacy@x.com'").get().id, id, 'same account');
+    assert.equal((await db.get("SELECT id FROM users WHERE email = 'legacy@x.com'")).id, id, 'same account');
     const session = client();
     assert.equal((await login(session, 'legacy@x.com', 'Legacy-new-pass-1')).status, 200);
     assert.equal((await session('GET', '/api/owner/pg')).data.pg.name, 'Legacy PG');
@@ -216,7 +214,7 @@ describe('existing databases', () => {
   test('other owner rows are kept but disabled: they cannot log in and their sessions stop working', async () => {
     const r = await ensureOwner();
     assert.equal(r.disabledOwners, 1, 'boss@example.com is now the disabled one');
-    assert.equal(owners().length, 2, 'nothing is deleted');
+    assert.equal((await owners()).length, 2, 'nothing is deleted');
     assert.equal((await login(client(), 'boss@example.com', 'Brand-new-pass-9')).status, 401);
     assert.equal((await login(client(), 'boss@example.com', 'Str0ng-owner-pass')).status, 401);
     // a session that was opened while boss was the configured owner no longer works
@@ -244,7 +242,7 @@ describe('bad configuration', () => {
 
   test('the owner email cannot be a tenant’s email', async () => {
     await rejects('tia@x.com', 'Str0ng-owner-pass', /belongs to a tenant/);
-    assert.equal(db.prepare("SELECT role FROM users WHERE email = 'tia@x.com'").get().role, 'tenant');
+    assert.equal((await db.get("SELECT role FROM users WHERE email = 'tia@x.com'")).role, 'tenant');
   });
 
   test('with no owner configured at all, nobody can log in as an owner', async () => {

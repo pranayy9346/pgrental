@@ -36,8 +36,15 @@ that owner's email to keep its data (any other owner rows are kept but cannot lo
 | `OWNER_EMAIL`    | (required)          | Login email of the one owner account                 |
 | `OWNER_PASSWORD` | (required)          | Password of the owner account (at least 8 characters) |
 | `OWNER_NAME`     | `PG Owner`          | Display name when the owner account is first created |
-| `PORT`           | `3001`              | Backend port                                         |
-| `DB_PATH`        | `data/pg-rental.db` | SQLite file path, relative to `server/`              |
+| `PORT`           | `3001`              | Backend port (hosting platforms set it themselves)   |
+| `DB_PATH`        | `data/pg-rental.db` | SQLite file path, relative to `server/` (local development) |
+| `DATABASE_URL`   | (not set)           | PostgreSQL connection string. When set, the app uses PostgreSQL instead of the SQLite file (production) |
+
+More settings (cookies, allowed websites, pooling) are explained in `server/.env.example` and `DEPLOYMENT.md`.
+
+Neon: `neon deploy` writes `DATABASE_URL` (pooled) and `DATABASE_URL_UNPOOLED` (direct) into the git-ignored `.env.local` in the
+project root. `npm run dev:neon` then runs the app on that database instead of the SQLite file. Check which Neon branch
+`.env.local` points at first (`neon status`): prefer a development branch (`neon checkout dev --create`) over `production`.
 
 The SQLite database file is created automatically on first start.
 
@@ -73,8 +80,12 @@ To start with no demo data, simply skip `npm run seed`.
 ## Test
 
 ```sh
-npm test
+npm test            # all tests on the SQLite driver
+npm run test:pg     # the same tests on a real PostgreSQL engine (no PostgreSQL install needed)
+npm run test:all    # both
 ```
+
+The tests always use a throw-away database (SQLite in memory, or the built-in PostgreSQL engine) and ignore `DATABASE_URL`, `DB_PATH` and the other settings in your shell or `.env` files, so they can never touch your real or hosted data.
 
 ## Run (development)
 
@@ -115,3 +126,10 @@ npm start       # starts the backend and also serves client/dist on http://local
   have the Visual C++ build tools installed and want to compile it yourself.
 - On server start Node prints `.env not found. Continuing without it.` when `server/.env` does not exist.
   The defaults above are used in that case.
+
+## Hosting it online (Vercel + Render + PostgreSQL)
+
+The app can run on free hosting: the React frontend on Vercel, the API on Render and the data in a free PostgreSQL
+database. **`DEPLOYMENT.md` is the complete guide**: which free database to choose (and which not to), every setting for
+each dashboard, how to copy your existing SQLite data safely, backups, and a troubleshooting table. Locally nothing
+changes: without `DATABASE_URL` the app keeps using your SQLite file.

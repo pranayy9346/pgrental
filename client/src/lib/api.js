@@ -32,6 +32,11 @@ export async function api(path, { method = 'GET', body } = {}) {
     throw new ApiError(0, 'Cannot reach the server. Is the backend running?');
   }
   const data = await res.json().catch(() => null);
+  if (res.ok && data === null) {
+    // Every endpoint answers with JSON. Anything else usually means the request reached the wrong server, e.g. the
+    // hosted frontend was built without VITE_API_URL and is asking its own host for /api.
+    throw new ApiError(res.status, 'The server sent an unexpected reply. If this is the hosted site, check that VITE_API_URL points to the backend.');
+  }
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/login')) onUnauthorized();
     throw new ApiError(res.status, data?.error || `Request failed (${res.status})`, data?.details);

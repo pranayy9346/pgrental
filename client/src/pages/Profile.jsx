@@ -38,8 +38,8 @@ export default function Profile() {
       {user.role === 'owner' ? (
         <Card title="Password">
           <p className="text-sm text-slate-600">
-            The owner password is set in the server configuration (<code>OWNER_PASSWORD</code> in <code>server/.env</code>). To
-            change it, edit that file and restart the server.
+            The owner password is part of the server's settings, not something you change inside the app. To change it,
+            update the owner password setting where the server is hosted and restart the server.
           </p>
         </Card>
       ) : (

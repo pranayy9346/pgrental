@@ -8,7 +8,22 @@ const KEY_LEN = 64;
 
 export const SESSION_COOKIE = 'pg_session';
 const SESSION_DAYS = 7;
-const isProduction = process.env.NODE_ENV === 'production';
+
+// Session cookie attributes come from the environment so the same code works locally and in production:
+//   COOKIE_SAMESITE  lax (default) | strict | none
+//       `lax` is right when the page and the API share a site (local development, or the API reached through the
+//       frontend's own domain). `none` is needed when a frontend on another site (e.g. *.vercel.app) calls an API on
+//       *.onrender.com directly; browsers then require `Secure`, and the server insists on an Origin header.
+//   COOKIE_SECURE    true | false. Default: true when NODE_ENV=production, otherwise false.
+export function cookieSettings() {
+  const sameSite = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
+  if (!['lax', 'strict', 'none'].includes(sameSite)) {
+    throw new Error(`COOKIE_SAMESITE must be lax, strict or none (got "${process.env.COOKIE_SAMESITE}").`);
+  }
+  const secureSetting = process.env.COOKIE_SECURE;
+  const secure = sameSite === 'none' ? true : secureSetting ? secureSetting === 'true' : process.env.NODE_ENV === 'production';
+  return { sameSite, secure };
+}
 
 // ---- Passwords (scrypt, built into Node — no extra dependency) ----
 
@@ -39,32 +54,28 @@ export async function verifyAgainstDummy(plain) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
-export function createSession(res, userId) {
+export async function createSession(res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000);
-  db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
+  await db.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)', [
     sha256(token),
     userId,
     expires.toISOString(),
-  );
-  res.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: isProduction,
-    expires,
-    path: '/',
-  });
+  ]);
+  const { sameSite, secure } = cookieSettings();
+  res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite, secure, expires, path: '/' });
 }
 
-export function destroySession(req, res) {
+export async function destroySession(req, res) {
   const token = readCookie(req, SESSION_COOKIE);
-  if (token) db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
-  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  if (token) await db.run('DELETE FROM sessions WHERE token_hash = ?', [sha256(token)]);
+  const { sameSite, secure } = cookieSettings();
+  res.clearCookie(SESSION_COOKIE, { path: '/', httpOnly: true, sameSite, secure }); // same attributes, or browsers keep it
 }
 
-export function destroyOtherSessions(userId, req) {
+export async function destroyOtherSessions(userId, req) {
   const token = readCookie(req, SESSION_COOKIE);
-  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(userId, sha256(token || ''));
+  await db.run('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?', [userId, sha256(token || '')]);
 }
 
 function readCookie(req, name) {
@@ -83,11 +94,13 @@ function readCookie(req, name) {
   return null;
 }
 
-const findSessionUser = db.prepare(`
-  SELECT u.id, u.role, u.name, u.email, u.phone, u.owner_id, u.must_change_password
-  FROM sessions s JOIN users u ON u.id = s.user_id
-  WHERE s.token_hash = ? AND s.expires_at > ?
-`);
+const findSessionUser = (tokenHash, nowIso) =>
+  db.get(
+    `SELECT u.id, u.role, u.name, u.email, u.phone, u.owner_id, u.must_change_password
+     FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = ? AND s.expires_at > ?`,
+    [tokenHash, nowIso],
+  );
 
 // ---- The one owner ----
 // The app has exactly one owner account: the one named by OWNER_EMAIL (see lib/owner.js). Any other owner row
@@ -97,11 +110,15 @@ export const configuredOwnerEmail = () => (process.env.OWNER_EMAIL || '').trim()
 export const mayUseApp = (user) => user.role !== 'owner' || user.email.toLowerCase() === configuredOwnerEmail();
 
 // Middleware: attaches req.user when a valid session cookie is present. Never rejects.
-export function loadUser(req, res, next) {
-  const token = readCookie(req, SESSION_COOKIE);
-  const user = token ? findSessionUser.get(sha256(token), new Date().toISOString()) : null;
-  req.user = user && mayUseApp(user) ? user : null;
-  next();
+export async function loadUser(req, res, next) {
+  try {
+    const token = readCookie(req, SESSION_COOKIE);
+    const user = token ? await findSessionUser(sha256(token), new Date().toISOString()) : null;
+    req.user = user && mayUseApp(user) ? user : null;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 export function requireAuth(req, res, next) {
@@ -128,8 +145,8 @@ export function publicUser(u) {
   };
 }
 
-export function purgeExpiredSessions() {
-  db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString());
+export async function purgeExpiredSessions() {
+  await db.run('DELETE FROM sessions WHERE expires_at <= ?', [new Date().toISOString()]);
 }
 
 // ---- Rate limiting (in memory, per key such as IP + email) ----

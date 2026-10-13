@@ -7,11 +7,26 @@
     "dev": "node --watch --env-file-if-exists=.env src/index.js",
     "start": "node --env-file-if-exists=.env src/index.js",
     "seed": "node --env-file-if-exists=.env scripts/seed.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --import ./test/isolate.js --test \"test/**/*.test.js\"",
+    "test:pg": "node --import ./test/isolate.js --import ./test/use-pglite.js --test \"test/**/*.test.js\"",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "migrate:from-sqlite": "node --env-file-if-exists=.env scripts/migrate-sqlite-to-postgres.js",
+    "backup:sqlite": "node --env-file-if-exists=.env scripts/backup-sqlite.js",
+    "backup:postgres": "node --env-file-if-exists=.env scripts/backup-postgres.js",
+    "test:all": "npm test && npm run test:pg",
+    "dev:neon": "node --watch --env-file-if-exists=.env --env-file=../.env.local src/index.js",
+    "start:neon": "node --env-file-if-exists=.env --env-file=../.env.local src/index.js"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.9",
+    "@electric-sql/pglite-socket": "^0.2.12"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

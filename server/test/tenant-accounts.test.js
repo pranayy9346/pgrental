@@ -63,13 +63,13 @@ describe('who may create tenants', () => {
     await registerTenant(tenantA, 'tina@x.com');
     assert.equal((await create(tenantA, { name: 'Sneaky', email: 'sneaky@x.com' })).status, 403);
     assert.equal((await tenantA('GET', '/api/owner/tenants')).status, 403);
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE email = 'sneaky@x.com'").get(), undefined);
+    assert.equal((await db.get("SELECT 1 FROM users WHERE email = 'sneaky@x.com'")), undefined);
   });
 
   test('an owner cannot place a tenant in another owner’s room, and no account is created', async () => {
     const r = await create(ownerA, { name: 'Wrong Room', email: 'wrong@x.com', ...roomBody({ room_id: ids.roomB }) });
     assert.equal(r.status, 404);
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE email = 'wrong@x.com'").get(), undefined);
+    assert.equal((await db.get("SELECT 1 FROM users WHERE email = 'wrong@x.com'")), undefined);
   });
 
   test('each owner only lists their own tenants', async () => {
@@ -78,14 +78,12 @@ describe('who may create tenants', () => {
     assert.equal((await ownerB('GET', '/api/owner/tenants')).data.tenants.length, 0);
   });
 
-  test('the new tenant is linked to the creating owner and the right property', () => {
-    const row = db
-      .prepare(
-        `SELECT u.role, u.owner_id, p.owner_id AS property_owner, u.must_change_password
-         FROM users u JOIN tenancies t ON t.tenant_id = u.id JOIN rooms r ON r.id = t.room_id
-         JOIN properties p ON p.id = r.property_id WHERE u.email = 'tina@x.com'`,
-      )
-      .get();
+  test('the new tenant is linked to the creating owner and the right property', async () => {
+    const row = await db.get(
+      `SELECT u.role, u.owner_id, p.owner_id AS property_owner, u.must_change_password
+       FROM users u JOIN tenancies t ON t.tenant_id = u.id JOIN rooms r ON r.id = t.room_id
+       JOIN properties p ON p.id = r.property_id WHERE u.email = 'tina@x.com'`,
+    );
     assert.equal(row.role, 'tenant');
     assert.equal(row.owner_id, row.property_owner);
     assert.equal(row.must_change_password, 0);
@@ -99,15 +97,15 @@ describe('invalid input', () => {
     for (const f of fields) assert.ok(r.data.details?.[f], `expected an error for "${f}": ${JSON.stringify(r.data)}`);
   };
 
-  test('missing name and email', () => bad({}, ['name', 'email']));
-  test('name too short', () => bad({ name: 'A', email: 'ok@x.com' }, ['name']));
+  test('missing name and email', async () => bad({}, ['name', 'email']));
+  test('name too short', async () => bad({ name: 'A', email: 'ok@x.com' }, ['name']));
   test('malformed email', async () => {
     await bad({ name: 'Ann', email: 'not-an-email' }, ['email']);
     await bad({ name: 'Ann', email: 'a b@x.com' }, ['email']);
     await bad({ name: 'Ann', email: 42 }, ['email']);
   });
-  test('malformed phone', () => bad({ name: 'Ann', email: 'ann@x.com', phone: 'call me' }, ['phone']));
-  test('a room needs a move-in date', () => bad({ name: 'Ann', email: 'ann@x.com', room_id: ids.roomA }, ['start_date']));
+  test('malformed phone', async () => bad({ name: 'Ann', email: 'ann@x.com', phone: 'call me' }, ['phone']));
+  test('a room needs a move-in date', async () => bad({ name: 'Ann', email: 'ann@x.com', room_id: ids.roomA }, ['start_date']));
   test('bad move-in date, rent, deposit and due day', async () => {
     await bad({ name: 'Ann', email: 'ann@x.com', ...roomBody({ start_date: '2026-02-30' }) }, ['start_date']);
     await bad({ name: 'Ann', email: 'ann@x.com', ...roomBody({ monthly_rent: -5 }) }, ['monthly_rent']);
@@ -122,8 +120,8 @@ describe('invalid input', () => {
     assert.equal(r.status, 401);
     assert.equal((await create(ownerA, [])).status, 400);
   });
-  test('nothing was created by any of the invalid requests', () => {
-    const users = db.prepare("SELECT email FROM users WHERE role = 'tenant'").all().map((u) => u.email);
+  test('nothing was created by any of the invalid requests', async () => {
+    const users = (await db.all("SELECT email FROM users WHERE role = 'tenant'")).map((u) => u.email);
     assert.deepEqual(users, ['tina@x.com']);
   });
 });
@@ -141,7 +139,7 @@ describe('duplicate emails', () => {
     assert.equal(r.status, 404);
   });
   test('the tenant’s login still works afterwards', async () => {
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'tina@x.com'").get().n, 1);
+    assert.equal((await db.get("SELECT COUNT(*) AS n FROM users WHERE email = 'tina@x.com'")).n, 1);
   });
 });
 
@@ -153,7 +151,7 @@ describe('a tenant added without a room', () => {
     assert.equal(r.data.tenant.phone, null);
     assert.equal(r.data.tenant.registered_at, null);
     assert.equal(r.data.tempPassword, undefined);
-    assert.equal(db.prepare("SELECT password_hash FROM users WHERE email = 'noroom@x.com'").get().password_hash, '!');
+    assert.equal((await db.get("SELECT password_hash FROM users WHERE email = 'noroom@x.com'")).password_hash, '!');
   });
 
   test('they cannot log in before registering, whatever password is tried', async () => {
@@ -185,7 +183,7 @@ describe('secrets are never exposed', () => {
       const text = JSON.stringify(body).toLowerCase();
       assert.ok(!text.includes('password') && !text.includes('scrypt$') && !text.includes('code'), 'no secrets in read responses');
     }
-    const registered = db.prepare("SELECT password_hash FROM users WHERE role = 'tenant' AND registered_at IS NOT NULL").all();
+    const registered = (await db.all("SELECT password_hash FROM users WHERE role = 'tenant' AND registered_at IS NOT NULL"));
     assert.ok(registered.length >= 2 && registered.every((h) => h.password_hash.startsWith('scrypt$')));
   });
 

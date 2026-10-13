@@ -51,7 +51,10 @@ describe('setup', () => {
 
   test('the verification-code endpoints no longer exist', async () => {
     assert.equal((await anon('POST', '/api/auth/tenant/request-code', { email: 'dana@x.com' })).status, 404);
-    assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'registration_codes'").get(), undefined, 'table is gone');
+    const tableQuery = db.dialect === 'sqlite'
+      ? "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'registration_codes'"
+      : "SELECT table_name AS name FROM information_schema.tables WHERE table_name = 'registration_codes'";
+    assert.equal(await db.get(tableQuery), undefined, 'table is gone');
   });
 });
 
@@ -81,8 +84,8 @@ describe('an invited tenant registers directly', () => {
     assert.equal((await dana('POST', '/api/owner/tenants', { name: 'X Y', email: 'xy@x.com' })).status, 403);
   });
 
-  test('the password is stored hashed and the account is marked registered', () => {
-    const row = db.prepare('SELECT role, password_hash, registered_at FROM users WHERE email = ?').get('dana@x.com');
+  test('the password is stored hashed and the account is marked registered', async () => {
+    const row = (await db.get('SELECT role, password_hash, registered_at FROM users WHERE email = ?', ['dana@x.com']));
     assert.equal(row.role, 'tenant');
     assert.ok(row.password_hash.startsWith('scrypt$') && !row.password_hash.includes('danaPassword1'));
     assert.ok(row.registered_at);
@@ -115,7 +118,7 @@ describe('email matching', () => {
     for (const email of ['finn@x.co', 'finn+1@x.com', 'inn@x.com', 'finn@y.com', 'finn.@x.com']) {
       assert.equal((await register(client(), email)).status, 404, email);
     }
-    assert.equal(db.prepare('SELECT registered_at FROM users WHERE email = ?').get('finn@x.com').registered_at, null);
+    assert.equal((await db.get('SELECT registered_at FROM users WHERE email = ?', ['finn@x.com'])).registered_at, null);
   });
 
   test('a malformed or missing email is a validation error', async () => {
@@ -132,7 +135,7 @@ describe('who is refused', () => {
     const r = await register(client(), 'stranger@x.com');
     assert.equal(r.status, 404);
     assert.match(r.data.error, /not been added by a PG owner/);
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE email = 'stranger@x.com'").get(), undefined);
+    assert.equal((await db.get("SELECT 1 FROM users WHERE email = 'stranger@x.com'")), undefined);
   });
 
   test('registering the same email twice is refused and the first password stays in force', async () => {
@@ -148,7 +151,7 @@ describe('who is refused', () => {
   test('an owner’s email cannot be used to register (and no owner can be created this way)', async () => {
     const r = await register(client(), 'owner@x.com', 'ownerHijack1');
     assert.equal(r.status, 404);
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").get().n, 2);
+    assert.equal((await db.get("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'")).n, 2);
     assert.equal((await anon('POST', '/api/auth/login', { email: 'owner@x.com', password: 'ownerHijack1' })).status, 401);
   });
 
@@ -169,7 +172,7 @@ describe('passwords', () => {
       assert.ok(r.data.details.password);
     }
     assert.equal((await client()('POST', '/api/auth/tenant/register', { email: 'hana@x.com' })).status, 400, 'no password at all');
-    assert.equal(db.prepare('SELECT registered_at FROM users WHERE email = ?').get('hana@x.com').registered_at, null);
+    assert.equal((await db.get('SELECT registered_at FROM users WHERE email = ?', ['hana@x.com'])).registered_at, null);
     assert.equal((await register(client(), 'hana@x.com', '12345678')).status, 201, 'exactly 8 characters is fine');
   });
 
@@ -180,7 +183,7 @@ describe('passwords', () => {
   test('the same password may be used by different tenants, each stored with its own salt', async () => {
     assert.equal((await register(client(), 'ivy@x.com', 'sharedPassword1')).status, 201);
     assert.equal((await register(client(), 'jo@x.com', 'sharedPassword1')).status, 201);
-    const hashes = db.prepare("SELECT password_hash FROM users WHERE email IN ('ivy@x.com','jo@x.com')").all().map((r) => r.password_hash);
+    const hashes = (await db.all("SELECT password_hash FROM users WHERE email IN ('ivy@x.com','jo@x.com')")).map((r) => r.password_hash);
     assert.notEqual(hashes[0], hashes[1]);
   });
 });
@@ -190,7 +193,7 @@ describe('concurrent requests', () => {
     const [a, b] = [client(), client()];
     const results = await Promise.all([register(a, 'kim@x.com', 'firstPassword1'), register(b, 'kim@x.com', 'secondPassword1')]);
     assert.deepEqual(results.map((r) => r.status).sort(), [201, 409]);
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'kim@x.com'").get().n, 1, 'no duplicate account');
+    assert.equal((await db.get("SELECT COUNT(*) AS n FROM users WHERE email = 'kim@x.com'")).n, 1, 'no duplicate account');
 
     // only the winner's password works, and the refused request got no session
     const firstWon = results[0].status === 201;
