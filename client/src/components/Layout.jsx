@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router';
 import { homeFor, useAuth } from '../lib/auth.jsx';
-import { Alert, Icon, Loading } from './ui.jsx';
+import { NotificationsProvider, useNotifications } from '../lib/notifications.jsx';
+import { Alert, CountBadge, Icon, Loading } from './ui.jsx';
 
 // Each group has an optional heading. Order inside "Setup" is the order an owner works through when starting out.
 const navs = {
@@ -19,9 +20,9 @@ const navs = {
       heading: 'Manage',
       items: [
         { to: '/owner/payments', label: 'Rent & Payments', icon: 'card' },
-        { to: '/owner/complaints', label: 'Complaints', icon: 'message' },
-        { to: '/owner/vacate-requests', label: 'Move-out Requests', icon: 'logout' },
-        { to: '/owner/notices', label: 'Notices', icon: 'bell' },
+        { to: '/owner/complaints', label: 'Complaints', icon: 'message', badge: 'complaints' },
+        { to: '/owner/vacate-requests', label: 'Move-out Requests', icon: 'logout', badge: 'moveout' },
+        { to: '/owner/notices', label: 'Notices', icon: 'megaphone' },
       ],
     },
     { heading: 'Account', items: [{ to: '/owner/profile', label: 'My Account', icon: 'user' }] },
@@ -30,10 +31,10 @@ const navs = {
     {
       items: [
         { to: '/tenant', label: 'My Stay', icon: 'home', end: true },
-        { to: '/tenant/payments', label: 'My Payments', icon: 'card' },
-        { to: '/tenant/complaints', label: 'Complaints', icon: 'message' },
-        { to: '/tenant/vacate', label: 'Move Out', icon: 'logout' },
-        { to: '/tenant/notices', label: 'Notices', icon: 'bell' },
+        { to: '/tenant/payments', label: 'My Payments', icon: 'card', badge: 'payments' },
+        { to: '/tenant/complaints', label: 'Complaints', icon: 'message', badge: 'complaints' },
+        { to: '/tenant/vacate', label: 'Move Out', icon: 'logout', badge: 'moveout' },
+        { to: '/tenant/notices', label: 'Notices', icon: 'megaphone', badge: 'notices' },
       ],
     },
     { heading: 'Account', items: [{ to: '/tenant/profile', label: 'My Account', icon: 'user' }] },
@@ -59,6 +60,49 @@ const initials = (name) =>
     .slice(0, 2)
     .map((p) => p[0].toUpperCase())
     .join('');
+
+// Red count beside a menu item (nothing is shown at 0).
+function NavCount({ category }) {
+  const { summary } = useNotifications();
+  const count = summary?.[category] ?? 0;
+  if (!count) return null;
+  return (
+    <span className="ml-auto">
+      <CountBadge count={count} />
+    </span>
+  );
+}
+
+// The notification bell: links to the notification center and carries the total unread count.
+function Bell({ role, className = '' }) {
+  const { summary, available } = useNotifications();
+  if (!available) return null;
+  const total = summary?.total ?? 0;
+  return (
+    <NavLink
+      to={`/${role}/notifications`}
+      aria-label={total ? `Notifications, ${total > 99 ? 'more than 99' : total} unread` : 'Notifications'}
+      className={({ isActive }) =>
+        `relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg transition-colors ${
+          isActive ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+        } ${className}`
+      }
+    >
+      <Icon name="bell" className="h-6 w-6" />
+      {total > 0 && <CountBadge count={total} announce={false} className="absolute -right-0.5 -top-0.5 ring-2 ring-white" />}
+    </NavLink>
+  );
+}
+
+// Tells screen-reader users when the number of unread notifications goes up (not on first load).
+function Announcer() {
+  const { announcement } = useNotifications();
+  return (
+    <div role="status" aria-live="polite" className="sr-only">
+      {announcement}
+    </div>
+  );
+}
 
 function Brand({ role }) {
   return (
@@ -109,7 +153,9 @@ export default function Layout({ role }) {
   const groups = navs[role];
   const drawerHidden = !isDesktop && !menuOpen;
   return (
+    <NotificationsProvider key={user.id}>
     <div className="min-h-dvh md:flex">
+      <Announcer />
       {/* Phone / small tablet: top bar with the menu button */}
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur md:hidden">
         <button
@@ -123,9 +169,7 @@ export default function Layout({ role }) {
           <Icon name="menu" className="h-6 w-6" />
         </button>
         <p className="text-base font-bold text-slate-900">PG Manager</p>
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700" aria-hidden="true">
-          {initials(user.name)}
-        </span>
+        <Bell role={role} className="-mr-2" />
       </header>
 
       {menuOpen && <div className="fixed inset-0 z-40 bg-slate-900/50 md:hidden" onClick={() => setMenuOpen(false)} aria-hidden="true" />}
@@ -138,6 +182,7 @@ export default function Layout({ role }) {
       >
         <div className="flex items-center justify-between px-5 py-5">
           <Brand role={role} />
+          <Bell role={role} className="-mr-2 max-md:hidden" />
           <button
             type="button"
             className="-mr-2 flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 md:hidden"
@@ -168,6 +213,7 @@ export default function Layout({ role }) {
                       <>
                         <Icon name={l.icon} className={`h-5 w-5 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`} />
                         {l.label}
+                        {l.badge && <NavCount category={l.badge} />}
                       </>
                     )}
                   </NavLink>
@@ -209,5 +255,6 @@ export default function Layout({ role }) {
         </div>
       </main>
     </div>
+    </NotificationsProvider>
   );
 }

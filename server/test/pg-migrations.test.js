@@ -9,10 +9,33 @@ import { migrate } from '../src/schema.js';
 const freshPg = () => open();
 
 describe('migration runner', () => {
-  test('first start applies version 1 and records it', async () => {
+  test('first start applies every migration in order and records them', async () => {
     const pg = await freshPg();
     const rows = await pg.all('SELECT version, name FROM schema_migrations ORDER BY version');
-    assert.deepEqual(rows, [{ version: 1, name: 'initial_schema' }]);
+    assert.deepEqual(rows, [
+      { version: 1, name: 'initial_schema' },
+      { version: 2, name: 'notifications' },
+    ]);
+    await pg.close();
+  });
+
+  test('upgrading a version-1 database adds the notifications table without touching or copying any data', async () => {
+    const later = migrations.splice(1); // build a database that only knows version 1, as production does today
+    const pg = await freshPg();
+    migrations.push(...later);
+    await pg.run("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'O', 'o@x.com', 'h')");
+    const ownerId = (await pg.get("SELECT id FROM users WHERE email = 'o@x.com'")).id;
+    await pg.run("INSERT INTO properties (owner_id, name, address, city) VALUES (?, 'PG', 'A', 'C')", [ownerId]);
+    const pid = (await pg.get('SELECT id FROM properties')).id;
+    await pg.run("INSERT INTO notices (property_id, title, body) VALUES (?, 'Existing notice', 'body')", [pid]);
+    assert.equal(await pg.get("SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'notifications'"), undefined);
+
+    assert.deepEqual(await runPgMigrations(pg), [2]);
+
+    assert.equal((await pg.get('SELECT COUNT(*) AS n FROM users')).n, 1, 'users kept');
+    assert.equal((await pg.get('SELECT title FROM notices')).title, 'Existing notice', 'existing notice kept');
+    assert.equal((await pg.get('SELECT COUNT(*) AS n FROM notifications')).n, 0, 'no notification is created for existing data');
+    assert.deepEqual(await runPgMigrations(pg), [], 'running it again changes nothing');
     await pg.close();
   });
 
@@ -35,16 +58,16 @@ describe('migration runner', () => {
     }
     assert.equal(await pg.get("SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'half_done'"), undefined);
     assert.equal(await pg.get('SELECT 1 AS ok FROM schema_migrations WHERE version = 99'), undefined);
-    assert.equal((await pg.get('SELECT COUNT(*) AS n FROM schema_migrations')).n, 1, 'version 1 is still recorded');
+    assert.equal((await pg.get('SELECT COUNT(*) AS n FROM schema_migrations')).n, 2, 'versions 1 and 2 are still recorded');
     await pg.close();
   });
 
   test('a later migration is applied on top of existing data without losing it', async () => {
     const pg = await freshPg();
     await pg.run("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'O', 'o@x.com', 'h')");
-    migrations.push({ version: 2, name: 'test_add_column', sql: 'ALTER TABLE users ADD COLUMN nickname TEXT' });
+    migrations.push({ version: 3, name: 'test_add_column', sql: 'ALTER TABLE users ADD COLUMN nickname TEXT' });
     try {
-      assert.deepEqual(await runPgMigrations(pg), [2]);
+      assert.deepEqual(await runPgMigrations(pg), [3]);
     } finally {
       migrations.pop();
     }

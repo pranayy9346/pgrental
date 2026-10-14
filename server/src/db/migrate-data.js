@@ -14,7 +14,9 @@ import { runPgMigrations } from './pg-schema.js';
 //
 // Order matters because of foreign keys: parents before children, and owners before the tenants that point at them.
 export const COPY_ORDER = ['users', 'properties', 'rooms', 'tenancies', 'payments', 'complaints', 'notices', 'vacate_requests'];
-const EXPECTED_SQLITE_VERSION = 4;
+// SQLite schema versions this tool can copy. Version 5 only adds the `notifications` table, which (like sessions) is
+// derived state and is NOT copied: after a copy everything simply counts as already seen.
+const SUPPORTED_SQLITE_VERSIONS = [4, 5];
 
 class DryRunRollback extends Error {}
 
@@ -23,9 +25,9 @@ const digest = (rows) => crypto.createHash('sha256').update(JSON.stringify(rows.
 
 export async function migrateSqliteToPostgres({ source, target, commit = false, log = () => {} }) {
   const version = source.pragma('user_version', { simple: true });
-  if (version !== EXPECTED_SQLITE_VERSION) {
+  if (!SUPPORTED_SQLITE_VERSIONS.includes(version)) {
     throw new Error(
-      `The SQLite database is at schema version ${version}, but this tool expects version ${EXPECTED_SQLITE_VERSION}. ` +
+      `The SQLite database is at schema version ${version}, but this tool expects version ${SUPPORTED_SQLITE_VERSIONS.join(' or ')}. ` +
         'Start the current app once against that database so it upgrades, then run this again.',
     );
   }

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, Async, Badge, Button, Card, Empty, Field, FormModal, PageHeader, useForm } from '../../components/ui.jsx';
+import { Alert, Async, Badge, Button, Card, Empty, Field, FormModal, NewTag, PageHeader, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { capitalize, complaintCategories, formatDate } from '../../lib/format.js';
+import { useUnreadEntities } from '../../lib/notifications.jsx';
 
 function NewComplaint({ onClose, onSaved }) {
   const form = useForm({ title: '', category: 'other', description: '' }, async (v) => {
@@ -26,6 +27,7 @@ function NewComplaint({ onClose, onSaved }) {
 export default function TenantComplaints() {
   const state = useApi('/tenant/complaints');
   const dash = useApi('/tenant/dashboard');
+  const unread = useUnreadEntities('complaints');
   const [adding, setAdding] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const hasStay = Boolean(dash.data?.stay);
@@ -50,9 +52,10 @@ export default function TenantComplaints() {
           ) : (
             <div className="space-y-3">
               {complaints.map((c) => (
-                <Card key={c.id}>
+                <Card key={c.id} className={unread.isUnread('complaint', c.id) ? 'ring-2 ring-red-500/30' : ''}>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold text-slate-900">{c.title}</h3>
+                    {unread.isUnread('complaint', c.id) && <NewTag />}
                     <Badge status={c.status} />
                     <Badge>{capitalize(c.category)}</Badge>
                   </div>
@@ -65,6 +68,13 @@ export default function TenantComplaints() {
                     <p className="mt-2 rounded-lg bg-indigo-50 p-2 text-sm text-indigo-900">
                       <b>Owner&apos;s reply:</b> {c.owner_reply}
                     </p>
+                  )}
+                  {unread.isUnread('complaint', c.id) && (
+                    <div className="mt-3 flex justify-end">
+                      <Button size="sm" variant="secondary" onClick={() => unread.markRead('complaint', c.id)}>
+                        Mark as read
+                      </Button>
+                    </div>
                   )}
                 </Card>
               ))}

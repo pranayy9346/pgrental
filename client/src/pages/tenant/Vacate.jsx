@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Alert, Async, Badge, Button, Card, Empty, Field, PageHeader, useConfirm, useForm } from '../../components/ui.jsx';
+import { Alert, Async, Badge, Button, Card, Empty, Field, NewTag, PageHeader, useConfirm, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { formatDate, todayISO } from '../../lib/format.js';
+import { useUnreadEntities } from '../../lib/notifications.jsx';
 
 const tones = { pending: 'pending', approved: 'paid', rejected: 'ended', cancelled: 'ended' };
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
@@ -26,6 +27,7 @@ function RequestForm({ onDone }) {
 export default function Vacate() {
   const state = useApi('/tenant/vacate-requests');
   const dash = useApi('/tenant/dashboard');
+  const unread = useUnreadEntities('moveout');
   const [sent, setSent] = useState(false);
   const confirm = useConfirm();
 
@@ -93,6 +95,7 @@ export default function Vacate() {
                         <div className="flex flex-wrap items-center gap-2">
                           <b>Move out on {formatDate(r.requested_date)}</b>
                           <Badge status={tones[r.status]}>{cap(r.status)}</Badge>
+                          {unread.isUnread('vacate_request', r.id) && <NewTag />}
                         </div>
                         <p className="text-xs text-slate-500">
                           {r.property_name} · Room {r.room_number} · Sent {formatDate(r.created_at)}
@@ -102,6 +105,13 @@ export default function Vacate() {
                           <p className="mt-2 rounded-lg bg-indigo-50 p-2 text-sm text-indigo-900">
                             <b>Owner&apos;s note:</b> {r.owner_note}
                           </p>
+                        )}
+                        {unread.isUnread('vacate_request', r.id) && (
+                          <div className="mt-2 flex justify-end">
+                            <Button size="sm" variant="secondary" onClick={() => unread.markRead('vacate_request', r.id)}>
+                              Mark as read
+                            </Button>
+                          </div>
                         )}
                       </li>
                     ))}

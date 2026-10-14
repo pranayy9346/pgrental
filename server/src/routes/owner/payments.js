@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../../db.js';
 import { badRequest, conflict, currentPeriod, idParam, notFound, today } from '../../lib/http.js';
+import { dateLabel, eventStamp, notify, periodLabel, removeForEntity, rupees } from '../../lib/notify.js';
 import { date, int, oneOf, period, str, validate } from '../../lib/validate.js';
 
 const router = Router();
@@ -44,16 +45,32 @@ router.post('/payments/generate', async (req, res) => {
   const p = validate(req.body, { period: period({ optional: true }) }).period ?? currentPeriod();
   const lastDay = new Date(Date.UTC(Number(p.slice(0, 4)), Number(p.slice(5, 7)), 0)).toISOString().slice(0, 10);
   // due date = the month + the stay's due day written with two digits (due_day is always 1-28)
-  const result = await db.run(
-    `INSERT INTO payments (tenancy_id, period, amount_due, due_date)
-     SELECT t.id, CAST(@period AS TEXT), t.monthly_rent,
-            CAST(@period AS TEXT) || '-' || CASE WHEN t.due_day < 10 THEN '0' || CAST(t.due_day AS TEXT) ELSE CAST(t.due_day AS TEXT) END
-     FROM tenancies t JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
-     WHERE p.owner_id = @owner_id AND t.status = 'active' AND t.start_date <= CAST(@last_day AS TEXT)
-       AND NOT EXISTS (SELECT 1 FROM payments x WHERE x.tenancy_id = t.id AND x.period = CAST(@period AS TEXT))`,
-    { owner_id: req.user.id, period: p, last_day: lastDay },
-  );
-  res.json({ created: result.changes, period: p });
+  // The new charges and one notification per charge are created together. Only charges created by THIS call notify
+  // (RETURNING gives their ids), so running it again for a month that is already billed notifies nobody.
+  const created = await db.transaction(async (tx) => {
+    const inserted = await tx.all(
+      `INSERT INTO payments (tenancy_id, period, amount_due, due_date)
+       SELECT t.id, CAST(@period AS TEXT), t.monthly_rent,
+              CAST(@period AS TEXT) || '-' || CASE WHEN t.due_day < 10 THEN '0' || CAST(t.due_day AS TEXT) ELSE CAST(t.due_day AS TEXT) END
+       FROM tenancies t JOIN rooms r ON r.id = t.room_id JOIN properties p ON p.id = r.property_id
+       WHERE p.owner_id = @owner_id AND t.status = 'active' AND t.start_date <= CAST(@last_day AS TEXT)
+         AND NOT EXISTS (SELECT 1 FROM payments x WHERE x.tenancy_id = t.id AND x.period = CAST(@period AS TEXT))
+       RETURNING id, tenancy_id, amount_due, due_date`,
+      { owner_id: req.user.id, period: p, last_day: lastDay },
+    );
+    for (const charge of inserted) {
+      const tenancy = await tx.get('SELECT tenant_id FROM tenancies WHERE id = ?', [charge.tenancy_id]);
+      await notify(tx, {
+        to: tenancy.tenant_id,
+        type: 'payment.charged',
+        entityId: charge.id,
+        title: `Rent due for ${periodLabel(p)}`,
+        body: `${rupees(charge.amount_due)} is due on ${dateLabel(charge.due_date)}.`,
+      });
+    }
+    return inserted.length;
+  });
+  res.json({ created, period: p });
 });
 
 // Record money received (can be called several times for part payments).
@@ -71,11 +88,22 @@ router.post('/payments/:id/record', async (req, res) => {
     throw badRequest('Please correct the highlighted fields', { amount: `Only ₹${remaining} is outstanding` });
   }
   const paid = payment.amount_paid + data.amount;
-  await db.run(
-    `UPDATE payments SET amount_paid = ?, status = ?, paid_on = ?, method = COALESCE(?, method), note = COALESCE(?, note)
-     WHERE id = ?`,
-    [paid, statusFor(payment.amount_due, paid), data.paid_on ?? today(), data.method, data.note, payment.id],
-  );
+  await db.transaction(async (tx) => {
+    await tx.run(
+      `UPDATE payments SET amount_paid = ?, status = ?, paid_on = ?, method = COALESCE(?, method), note = COALESCE(?, note)
+       WHERE id = ?`,
+      [paid, statusFor(payment.amount_due, paid), data.paid_on ?? today(), data.method, data.note, payment.id],
+    );
+    // `version` = the running total after this payment, so each payment notifies once and a repeat of the same one does not.
+    await notify(tx, {
+      to: payment.tenant_id,
+      type: 'payment.received',
+      entityId: payment.id,
+      version: String(paid),
+      title: `Payment of ${rupees(data.amount)} received`,
+      body: `${periodLabel(payment.period)} rent: ${paid >= payment.amount_due ? 'fully paid' : `${rupees(payment.amount_due - paid)} still due`}.`,
+    });
+  });
   res.json({ payment: await ownedPayment(req.user.id, payment.id) });
 });
 
@@ -93,20 +121,41 @@ router.patch('/payments/:id', async (req, res) => {
       amount_due: `Cannot be less than the ₹${payment.amount_paid} already paid`,
     });
   }
-  await db.run('UPDATE payments SET amount_due = ?, due_date = ?, note = ?, status = ? WHERE id = ?', [
-    due,
-    data.due_date ?? payment.due_date,
-    'note' in data ? data.note : payment.note,
-    statusFor(due, payment.amount_paid),
-    payment.id,
-  ]);
+  const dueDate = data.due_date ?? payment.due_date;
+  await db.transaction(async (tx) => {
+    await tx.run('UPDATE payments SET amount_due = ?, due_date = ?, note = ?, status = ? WHERE id = ?', [
+      due,
+      dueDate,
+      'note' in data ? data.note : payment.note,
+      statusFor(due, payment.amount_paid),
+      payment.id,
+    ]);
+    // Tell the tenant only when the amount or the due date actually changed (a note alone is not news).
+    const parts = [];
+    if (due !== payment.amount_due) parts.push(`Amount due ${rupees(payment.amount_due)} → ${rupees(due)}`);
+    if (dueDate !== payment.due_date) parts.push(`Due date ${dateLabel(dueDate)}`);
+    if (parts.length) {
+      await notify(tx, {
+        to: payment.tenant_id,
+        type: 'payment.adjusted',
+        entityId: payment.id,
+        version: eventStamp(),
+        title: `Rent for ${periodLabel(payment.period)} was updated`,
+        body: parts.join(' · '),
+      });
+    }
+  });
   res.json({ payment: await ownedPayment(req.user.id, payment.id) });
 });
 
 router.delete('/payments/:id', async (req, res) => {
   const payment = await ownedPayment(req.user.id, idParam(req.params.id));
   if (payment.amount_paid > 0) throw conflict('A charge that has money recorded against it cannot be deleted');
-  await db.run('DELETE FROM payments WHERE id = ?', [payment.id]);
+  // A deleted charge takes its notifications with it, so nothing points at a charge that no longer exists.
+  await db.transaction(async (tx) => {
+    await removeForEntity(tx, 'payment', payment.id);
+    await tx.run('DELETE FROM payments WHERE id = ?', [payment.id]);
+  });
   res.json({ ok: true });
 });
 

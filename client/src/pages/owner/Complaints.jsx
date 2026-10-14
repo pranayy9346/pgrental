@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Async, Badge, Button, Card, Empty, Field, FormModal, PageHeader, Tabs, useForm } from '../../components/ui.jsx';
+import { Async, Badge, Button, Card, Empty, Field, FormModal, NewTag, PageHeader, Tabs, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { capitalize, formatDate, labels } from '../../lib/format.js';
+import { useNotifications, useUnreadEntities } from '../../lib/notifications.jsx';
 
 function UpdateComplaint({ complaint, onClose, onSaved }) {
   const form = useForm({ status: complaint.status, owner_reply: complaint.owner_reply || '' }, async (v) => {
@@ -28,6 +29,8 @@ export default function Complaints() {
   const [filter, setFilter] = useState('');
   const state = useApi(`/owner/complaints${filter ? `?status=${filter}` : ''}`);
   const [editing, setEditing] = useState(null);
+  const unread = useUnreadEntities('complaints');
+  const { refresh: refreshCounts } = useNotifications();
 
   const tabs = [
     ['', 'All'],
@@ -47,11 +50,12 @@ export default function Complaints() {
           ) : (
             <div className="space-y-3">
               {complaints.map((c) => (
-                <Card key={c.id}>
+                <Card key={c.id} className={unread.isUnread('complaint', c.id) ? 'ring-2 ring-red-500/30' : ''}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-semibold text-slate-900">{c.title}</h3>
+                        {unread.isUnread('complaint', c.id) && <NewTag />}
                         <Badge status={c.status} />
                         <Badge>{capitalize(c.category)}</Badge>
                       </div>
@@ -68,9 +72,16 @@ export default function Complaints() {
                         </p>
                       )}
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => setEditing(c)}>
-                      Update
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {unread.isUnread('complaint', c.id) && (
+                        <Button size="sm" variant="ghost" onClick={() => unread.markRead('complaint', c.id)}>
+                          Mark as read
+                        </Button>
+                      )}
+                      <Button size="sm" variant="secondary" onClick={() => setEditing(c)}>
+                        Update
+                      </Button>
+                    </div>
                   </div>
                 </Card>
               ))}
@@ -85,6 +96,7 @@ export default function Complaints() {
           onSaved={() => {
             setEditing(null);
             state.reload();
+            refreshCounts().catch(() => {}); // updating a complaint acknowledges its notification on the server
           }}
         />
       )}

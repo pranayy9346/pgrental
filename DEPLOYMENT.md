@@ -222,6 +222,36 @@ npm run backup:postgres -w server                 # DATABASE_URL set
 | `/api/health/db` returns 503 | The backend is up but cannot reach PostgreSQL. |
 | First request after a quiet period takes a minute | Render free tier waking up. |
 | Frontend build fails with *Refusing to build: VITE_... looks like a secret* | A secret was put into a `VITE_` variable. Remove it; secrets belong only on Render. |
+| No bell or badges after deploying the frontend | The backend does not have the notification API yet (the app hides the bell when it gets a 404). Deploy the backend first. |
+
+## 11. Notifications (unread badges)
+
+A red count appears beside the menu items and the bell. Each user has their own unread state, stored in the database (table `notifications`, one row per person per event), so it survives refreshes, logouts and other devices.
+
+**Who is told what**
+
+| Event | Recipient | Menu item |
+|---|---|---|
+| Notice published | every *active* tenant of that PG at that moment | Notices |
+| Complaint status or reply changed | that tenant | Complaints |
+| Rent charge created, payment recorded, charge amount or due date changed | that tenant | My Payments |
+| Move-out request approved, rejected, or closed because the owner ended the stay | that tenant | Move Out |
+| Tenant raises a complaint | the owner | Complaints |
+| Tenant requests or withdraws a move-out | the owner | Move-out Requests |
+
+**Rules**
+* **Existing data is not turned into notifications.** The migration only creates an empty table. Everything that exists on deployment day counts as already seen, and badges start at 0. Only events after deployment notify. A tenant who joins later is not told about older notices (they can still read them in the list).
+* **Read means opened or acknowledged, never merely visited.** An item becomes read when it is opened in the notification center, when "Mark as read" is pressed, or on "Mark all as read". The owner acting on an item (updating a complaint, approving or rejecting a move-out) also counts. Loading a dashboard or list page never marks anything.
+* **No duplicates.** `(recipient, dedupe key)` is unique and inserts use `ON CONFLICT DO NOTHING`; an update that changes nothing notifies nobody.
+* **Deleted records.** Deleting a notice or an unpaid charge deletes the notifications about it, so nothing links to a missing page. (Complaints and move-out requests are never deleted by the app.)
+* **Privacy.** Every notification query is filtered by the logged-in user's own id; another user's notification answers 404. Tenants never see the owner's notifications or each other's.
+* **Request load.** Counts are fetched when the app opens, then every 60 seconds only while the tab is visible; polling pauses after 10 minutes without interaction, resumes on the next interaction or when the tab is shown again, and backs off (doubling, up to 10 minutes) after errors. An open tab keeps the free Render and Neon services awake, which uses a little of the free compute allowance.
+
+**Deploying this feature**
+1. It adds migration version 2 (`CREATE TABLE notifications` plus 3 indexes). It reads and writes no existing row and is safe to run on a database that is in use.
+2. Render runs pending migrations when the server starts (`DB_AUTO_MIGRATE` is not set), so deploying the new backend applies version 2 by itself. If you prefer a manual step: set `DB_AUTO_MIGRATE=false` on Render first, take `npm run backup:postgres`, run `npm run migrate` from your computer against the direct Neon address, and only then deploy. **Never run the new backend against a database that has not been migrated** (with auto-migration off): actions that create a notification, such as posting a notice, would fail until the table exists.
+3. Deploy the **backend first**, then the frontend (the new frontend hides the bell if the backend has no notification API; the old frontend simply ignores the new backend features).
+4. Rollback: redeploy the previous version. The old code ignores the table; nothing needs to be dropped.
 
 ## Appendix A. SQLite to PostgreSQL migration plan (what was changed)
 

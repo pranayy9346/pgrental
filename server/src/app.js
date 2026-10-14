@@ -6,6 +6,7 @@ import db from './db.js';
 import { cookieSettings, loadUser } from './lib/auth.js';
 import { HttpError } from './lib/http.js';
 import authRoutes from './routes/auth.js';
+import notificationRoutes from './routes/notifications.js';
 import ownerRoutes from './routes/owner/index.js';
 import tenantRoutes from './routes/tenant.js';
 
@@ -94,6 +95,7 @@ app.get('/api/health/db', async (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/owner', ownerRoutes);
 app.use('/api/tenant', tenantRoutes);
 

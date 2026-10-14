@@ -19,7 +19,8 @@
     "seed": "npm run seed -w server",
     "test": "npm test -w server",
     "test:pg": "npm run test:pg -w server",
-    "test:all": "npm run test:all -w server",
+    "test:client": "npm test -w client",
+    "test:all": "npm run test:all -w server && npm run test:client",
     "migrate": "npm run migrate -w server",
     "backup:sqlite": "npm run backup:sqlite -w server",
     "dev:neon": "concurrently -k -n server,client -c blue,green \"npm run dev:neon -w server\" \"npm run dev -w client\""

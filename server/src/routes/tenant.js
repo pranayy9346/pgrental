@@ -3,6 +3,7 @@ import { Router } from 'express';
 import db from '../db.js';
 import { requireRole } from '../lib/auth.js';
 import { badRequest, conflict, currentPeriod, idParam, notFound, nowStamp, today } from '../lib/http.js';
+import { dateLabel, notify } from '../lib/notify.js';
 import { date, oneOf, str, validate } from '../lib/validate.js';
 
 const router = Router();
@@ -97,12 +98,23 @@ router.post('/complaints', async (req, res) => {
       optional: true,
     }),
   });
-  const id = await db.insert('INSERT INTO complaints (tenancy_id, title, description, category) VALUES (?, ?, ?, ?)', [
-    stay.id,
-    data.title,
-    data.description,
-    data.category ?? 'other',
-  ]);
+  // The complaint and the owner's notification are created together or not at all.
+  const id = await db.transaction(async (tx) => {
+    const complaintId = await tx.insert('INSERT INTO complaints (tenancy_id, title, description, category) VALUES (?, ?, ?, ?)', [
+      stay.id,
+      data.title,
+      data.description,
+      data.category ?? 'other',
+    ]);
+    await notify(tx, {
+      to: req.user.owner_id,
+      type: 'complaint.new',
+      entityId: complaintId,
+      title: `New complaint: ${data.title}`,
+      body: `${req.user.name} (Room ${stay.room_number}): ${data.description}`,
+    });
+    return complaintId;
+  });
   res.status(201).json({ complaint: await db.get('SELECT * FROM complaints WHERE id = ?', [id]) });
 });
 
@@ -125,21 +137,39 @@ router.post('/vacate-requests', async (req, res) => {
   if (await db.get("SELECT 1 AS ok FROM vacate_requests WHERE tenancy_id = ? AND status = 'pending'", [stay.id])) {
     throw conflict('You already have a pending request. Cancel it first to submit a new one.');
   }
-  await db.run('INSERT INTO vacate_requests (tenancy_id, requested_date, reason) VALUES (?, ?, ?)', [
-    stay.id,
-    data.requested_date,
-    data.reason,
-  ]);
+  await db.transaction(async (tx) => {
+    const requestId = await tx.insert('INSERT INTO vacate_requests (tenancy_id, requested_date, reason) VALUES (?, ?, ?)', [
+      stay.id,
+      data.requested_date,
+      data.reason,
+    ]);
+    await notify(tx, {
+      to: req.user.owner_id,
+      type: 'vacate.requested',
+      entityId: requestId,
+      title: `Move-out request from ${req.user.name}`,
+      body: `Room ${stay.room_number}: wants to leave on ${dateLabel(data.requested_date)}.`,
+    });
+  });
   res.status(201).json({ requests: await vacateFor(req.user.id) });
 });
 
 router.post('/vacate-requests/:id/cancel', async (req, res) => {
-  const result = await db.run(
-    `UPDATE vacate_requests SET status = 'cancelled', decided_at = ?
-     WHERE id = ? AND status = 'pending' AND tenancy_id IN (SELECT id FROM tenancies WHERE tenant_id = ?)`,
-    [nowStamp(), idParam(req.params.id), req.user.id],
-  );
-  if (!result.changes) throw notFound('Pending request');
+  const id = idParam(req.params.id);
+  await db.transaction(async (tx) => {
+    const result = await tx.run(
+      `UPDATE vacate_requests SET status = 'cancelled', decided_at = ?
+       WHERE id = ? AND status = 'pending' AND tenancy_id IN (SELECT id FROM tenancies WHERE tenant_id = ?)`,
+      [nowStamp(), id, req.user.id],
+    );
+    if (!result.changes) throw notFound('Pending request');
+    await notify(tx, {
+      to: req.user.owner_id,
+      type: 'vacate.withdrawn',
+      entityId: id,
+      title: `${req.user.name} withdrew their move-out request`,
+    });
+  });
   res.json({ requests: await vacateFor(req.user.id) });
 });
 

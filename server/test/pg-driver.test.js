@@ -78,7 +78,7 @@ describe('the pg driver', () => {
     try {
       assert.equal(db.dialect, 'postgres');
       await db.ping();
-      assert.deepEqual(await db.all('SELECT version FROM schema_migrations'), [{ version: 1 }]);
+      assert.deepEqual(await db.all('SELECT version FROM schema_migrations ORDER BY version'), [{ version: 1 }, { version: 2 }]);
 
       // statements, ids and number types
       const id = await db.insert("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'O', ?, 'h')", ['o@x.com']);

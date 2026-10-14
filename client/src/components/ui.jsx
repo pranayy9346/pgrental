@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { labels } from '../lib/format.js';
+import { badgeText, labels } from '../lib/format.js';
 
 // ---------- Form state ----------
 // const form = useForm({ name: '' }, async (values) => { await api(...); });
@@ -47,6 +47,7 @@ const iconPaths = {
   message: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
   logout: ['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9'],
   bell: ['M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9', 'M13.73 21a2 2 0 0 1-3.46 0'],
+  megaphone: ['M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z', 'M15.5 9a4 4 0 0 1 0 6', 'M18.5 6.5a8 8 0 0 1 0 11'],
   bed: ['M2 4v16', 'M2 8h18a2 2 0 0 1 2 2v10', 'M2 17h20', 'M6 8v9'],
   menu: ['M3 12h18', 'M3 6h18', 'M3 18h18'],
   close: ['M18 6L6 18', 'M6 6l12 12'],
@@ -267,6 +268,28 @@ export function Badge({ status, children }) {
       {children ?? labels[status] ?? status}
     </span>
   );
+}
+
+// Red unread counter. Hidden at 0, "99+" above 99. By default it also adds a visually hidden sentence for screen readers
+// ("3 unread"); pass `announce={false}` where the surrounding control already carries its own aria-label (the bell).
+export function CountBadge({ count, label = 'unread', announce = true, className = '' }) {
+  if (!count || count < 1) return null;
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold leading-none text-white ${className}`}
+      >
+        {badgeText(count)}
+      </span>
+      {announce && <span className="sr-only">{`, ${count > 99 ? 'more than 99' : count} ${label}`}</span>}
+    </>
+  );
+}
+
+// Small "New" marker for a list item that has an unread notification.
+export function NewTag() {
+  return <span className="inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">New</span>;
 }
 
 export function Alert({ tone = 'error', children }) {

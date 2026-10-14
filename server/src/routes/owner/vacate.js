@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../../db.js';
 import { badRequest, conflict, idParam, notFound, nowStamp } from '../../lib/http.js';
+import { dateLabel, markEntityRead, notify } from '../../lib/notify.js';
 import { str, validate } from '../../lib/validate.js';
 import { endTenancy } from './tenants.js';
 
@@ -42,12 +43,22 @@ router.post('/vacate-requests/:id/approve', async (req, res) => {
     throw badRequest('The requested date is before the tenant moved in. Reject the request instead.');
   }
   await db.transaction(async (tx) => {
+    // Decide the request first, and only if it is still pending (two clicks at once cannot both succeed). Ending the
+    // stay afterwards finds no pending request left to cancel, so the tenant gets one "approved" notification only.
+    const decided = await tx.run(
+      "UPDATE vacate_requests SET status = 'approved', owner_note = ?, decided_at = ? WHERE id = ? AND status = 'pending'",
+      [owner_note, nowStamp(), request.id],
+    );
+    if (decided.changes !== 1) throw conflict('This request was already decided');
     await endTenancy(tx, request.tenancy_id, request.requested_date);
-    await tx.run("UPDATE vacate_requests SET status = 'approved', owner_note = ?, decided_at = ? WHERE id = ?", [
-      owner_note,
-      nowStamp(),
-      request.id,
-    ]);
+    await notify(tx, {
+      to: request.tenant_id,
+      type: 'vacate.approved',
+      entityId: request.id,
+      title: 'Your move-out request was approved',
+      body: `Your stay ends on ${dateLabel(request.requested_date)}.${owner_note ? ` Note from the owner: ${owner_note}` : ''}`,
+    });
+    await markEntityRead(tx, req.user.id, 'vacate_request', request.id); // deciding it acknowledges it
   });
   res.json({ request: await ownedRequest(req.user.id, request.id) });
 });
@@ -56,11 +67,21 @@ router.post('/vacate-requests/:id/reject', async (req, res) => {
   const request = await ownedRequest(req.user.id, idParam(req.params.id));
   const { owner_note } = validate(req.body, { owner_note: str({ max: 500, optional: true }) });
   if (request.status !== 'pending') throw conflict(`This request was already ${request.status}`);
-  await db.run("UPDATE vacate_requests SET status = 'rejected', owner_note = ?, decided_at = ? WHERE id = ?", [
-    owner_note,
-    nowStamp(),
-    request.id,
-  ]);
+  await db.transaction(async (tx) => {
+    const decided = await tx.run(
+      "UPDATE vacate_requests SET status = 'rejected', owner_note = ?, decided_at = ? WHERE id = ? AND status = 'pending'",
+      [owner_note, nowStamp(), request.id],
+    );
+    if (decided.changes !== 1) throw conflict('This request was already decided');
+    await notify(tx, {
+      to: request.tenant_id,
+      type: 'vacate.rejected',
+      entityId: request.id,
+      title: 'Your move-out request was not approved',
+      body: `You keep your room.${owner_note ? ` Note from the owner: ${owner_note}` : ''}`,
+    });
+    await markEntityRead(tx, req.user.id, 'vacate_request', request.id);
+  });
   res.json({ request: await ownedRequest(req.user.id, request.id) });
 });
 

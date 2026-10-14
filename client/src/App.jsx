@@ -3,6 +3,7 @@ import Layout from './components/Layout.jsx';
 import { Loading } from './components/ui.jsx';
 import { AuthProvider, homeFor, useAuth } from './lib/auth.jsx';
 import Login from './pages/Login.jsx';
+import Notifications from './pages/Notifications.jsx';
 import Profile from './pages/Profile.jsx';
 import TenantRegister from './pages/TenantRegister.jsx';
 import OwnerComplaints from './pages/owner/Complaints.jsx';
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="complaints" element={<OwnerComplaints />} />
             <Route path="vacate-requests" element={<VacateRequests />} />
             <Route path="notices" element={<OwnerNotices />} />
+            <Route path="notifications" element={<Notifications />} />
             <Route path="profile" element={<Profile />} />
           </Route>
 
@@ -65,6 +67,7 @@ export default function App() {
             <Route path="complaints" element={<TenantComplaints />} />
             <Route path="vacate" element={<TenantVacate />} />
             <Route path="notices" element={<TenantNotices />} />
+            <Route path="notifications" element={<Notifications />} />
             <Route path="profile" element={<Profile />} />
           </Route>
 

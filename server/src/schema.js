@@ -155,6 +155,28 @@ const migrations = [
   -- Only the short-lived code table is removed. Users, passwords and registration status are untouched.
   DROP TABLE registration_codes;
   `,
+  `
+  -- In-app notifications (unread badges). Additive only: one new, empty table, so nothing existing produces a
+  -- notification. One row per recipient per event; read_at IS NULL means unread; (recipient_id, dedupe_key) is
+  -- unique so the same event processed twice cannot notify twice.
+  CREATE TABLE notifications (
+    id           INTEGER PRIMARY KEY,
+    recipient_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category     TEXT    NOT NULL CHECK (category IN ('notices', 'complaints', 'payments', 'moveout')),
+    type         TEXT    NOT NULL,
+    entity_type  TEXT    NOT NULL CHECK (entity_type IN ('notice', 'complaint', 'payment', 'vacate_request')),
+    entity_id    INTEGER NOT NULL,
+    title        TEXT    NOT NULL,
+    body         TEXT,
+    dedupe_key   TEXT    NOT NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    read_at      TEXT,
+    UNIQUE (recipient_id, dedupe_key)
+  );
+  CREATE INDEX idx_notifications_unread ON notifications(recipient_id, category) WHERE read_at IS NULL;
+  CREATE INDEX idx_notifications_feed ON notifications(recipient_id, id DESC);
+  CREATE INDEX idx_notifications_entity ON notifications(entity_type, entity_id);
+  `,
 ];
 
 // `upTo` exists so tests can build an older database and check that upgrading it keeps its data.

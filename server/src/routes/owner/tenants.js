@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../../db.js';
 import { badRequest, conflict, idParam, nowStamp, today } from '../../lib/http.js';
+import { markEntityRead, notify } from '../../lib/notify.js';
 import { date, email, int, oneOf, phone, str, validate } from '../../lib/validate.js';
 import { activeTenancy, ownedRoom, ownedTenant } from './access.js';
 
@@ -69,11 +70,29 @@ async function placeInRoom(tx, ownerId, tenantId, data) {
 
 // Ends a stay and cancels any vacate request still waiting on it. `q` is `db` or a transaction.
 export async function endTenancy(q, tenancyId, endDate) {
+  // Requests that are about to be cancelled: their tenant is told, and the owner's "new request" notification is
+  // closed (the owner is the one acting here).
+  const waiting = await q.all(
+    `SELECT v.id, t.tenant_id, u.owner_id FROM vacate_requests v
+     JOIN tenancies t ON t.id = v.tenancy_id JOIN users u ON u.id = t.tenant_id
+     WHERE v.tenancy_id = ? AND v.status = 'pending'`,
+    [tenancyId],
+  );
   await q.run("UPDATE tenancies SET status = 'ended', end_date = ? WHERE id = ?", [endDate, tenancyId]);
   await q.run(
     "UPDATE vacate_requests SET status = 'cancelled', decided_at = ? WHERE tenancy_id = ? AND status = 'pending'",
     [nowStamp(), tenancyId],
   );
+  for (const w of waiting) {
+    await notify(q, {
+      to: w.tenant_id,
+      type: 'vacate.cancelled',
+      entityId: w.id,
+      title: 'Your move-out request was closed',
+      body: 'The owner updated your stay, so the request is no longer needed.',
+    });
+    await markEntityRead(q, w.owner_id, 'vacate_request', w.id);
+  }
 }
 
 // Add a tenant to the owner's PG and (optionally) put them in a room. This does not create a login yet:
