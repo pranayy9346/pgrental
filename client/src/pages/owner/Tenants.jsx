@@ -54,6 +54,9 @@ export function AssignmentFields({ form, currentRoomId, optional }) {
   );
 }
 
+// A tenant who has not registered yet can only do so while their invite code is valid.
+export const inviteIsValid = (t) => Boolean(t.invite_expires_at) && new Date(t.invite_expires_at) > new Date();
+
 // Turns form strings into the API body: empty optional numbers are left out.
 export function assignmentBody(v) {
   const body = { room_id: Number(v.room_id), start_date: v.start_date };
@@ -61,6 +64,47 @@ export function assignmentBody(v) {
   if (v.deposit !== '') body.deposit = v.deposit;
   if (v.due_day !== '') body.due_day = v.due_day;
   return body;
+}
+
+// Shows an invite code the server has just issued. This is the only time it can be seen (the server keeps only a
+// hash), so the owner copies the code, or a ready-made message with a registration link, and sends it to the tenant.
+// The link carries the code after '#', which browsers never send to any server, so it stays out of access logs.
+export function InviteCodePanel({ tenant, invite }) {
+  const [copied, setCopied] = useState('');
+  const validUntil = formatDate(invite.expires_at.slice(0, 10));
+  const link = `${window.location.origin}/register/tenant#${new URLSearchParams({ email: tenant.email, code: invite.code })}`;
+  const message =
+    `Hi ${tenant.name}, please create your PG account: ${link}\n` +
+    `Email: ${tenant.email}\nInvite code: ${invite.code} (works once, until ${validUntil}).`;
+
+  const copy = async (what, text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+    } catch {
+      setCopied('failed');
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
+      <p className="font-medium">Invite code for {tenant.name}</p>
+      <p className="select-all font-mono text-2xl font-semibold tracking-widest text-slate-900">{invite.code}</p>
+      <p>
+        Works once, only together with <b>{tenant.email}</b>, until <b>{validUntil}</b>. Send it to {tenant.name} privately
+        (in person, SMS or WhatsApp). <b>It is shown only now</b>: if it gets lost, create a new code from the tenant’s page.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" size="sm" onClick={() => copy('code', invite.code)}>
+          {copied === 'code' ? 'Code copied' : 'Copy code'}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => copy('message', message)}>
+          {copied === 'message' ? 'Message copied' : 'Copy message with link'}
+        </Button>
+      </div>
+      {copied === 'failed' && <Alert>Copying is not available here. Select the code above and copy it by hand.</Alert>}
+    </div>
+  );
 }
 
 function AddTenant({ onClose, onCreated }) {
@@ -84,14 +128,17 @@ function AddTenant({ onClose, onCreated }) {
           <Alert tone="success">
             <b>{created.tenant.name}</b> has been added{created.tenant.room_id ? ` to Room ${created.tenant.room_number}` : ''}.
           </Alert>
+          <InviteCodePanel tenant={created.tenant} invite={created.invite} />
           <div className="rounded-lg bg-slate-50 p-4 text-sm text-slate-700">
-            <p className="font-medium">Next, ask {created.tenant.name} to register:</p>
+            <p className="font-medium">{created.tenant.name} then registers:</p>
             <ol className="mt-2 list-decimal space-y-1 pl-5">
-              <li>Open the app and click <b>Tenant? Register here</b> on the login page.</li>
               <li>
-                Enter this email: <b>{created.tenant.email}</b>
+                Opens the link from your message, or clicks <b>Tenant? Register here</b> on the login page.
               </li>
-              <li>Choose a password and click <b>Create my account</b>.</li>
+              <li>
+                Enters the email <b>{created.tenant.email}</b> and the invite code.
+              </li>
+              <li>Chooses a password and clicks <b>Create my account</b>.</li>
             </ol>
           </div>
           <div className="flex justify-end gap-2">
@@ -140,7 +187,7 @@ export default function Tenants() {
     <div>
       <PageHeader
         title="Tenants"
-        subtitle="Step 3 of 3 · Add a tenant's name and email, assign a room, and they register themselves."
+        subtitle="Step 3 of 3 · Add a tenant's name and email, assign a room, and send them their invite code to register."
         actions={
           <Button onClick={() => setAdding(true)}>
             <Icon name="plus" className="h-4 w-4" />
@@ -187,7 +234,13 @@ export default function Tenants() {
                   key: 'account',
                   label: 'Account',
                   render: (t) =>
-                    t.registered_at ? <Badge status="paid">Registered</Badge> : <Badge status="partial">Invited, not registered</Badge>,
+                    t.registered_at ? (
+                      <Badge status="paid">Registered</Badge>
+                    ) : inviteIsValid(t) ? (
+                      <Badge status="partial">Invited, not registered</Badge>
+                    ) : (
+                      <Badge status="ended">Invite code expired</Badge>
+                    ),
                 },
                 {
                   key: 'balance',

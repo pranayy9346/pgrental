@@ -103,9 +103,13 @@ describe('the app on migrated data', { skip }, () => {
     assert.equal((await tenant('GET', '/api/owner/pg')).status, 403);
   });
 
-  test('a tenant who had not registered yet can still register after the migration', async () => {
+  test('a tenant who had not registered yet registers after the migration with a code from the owner', async () => {
     const waiting = client();
-    const r = await waiting('POST', '/api/auth/tenant/register', { email: 'waiting@x.com', password: 'new-tenant-pass' });
+    const body = { email: 'waiting@x.com', password: 'new-tenant-pass', invite_code: 'ABCD-EFGH-JK23' };
+    assert.equal((await waiting('POST', '/api/auth/tenant/register', body)).status, 400, 'older invitations have no code');
+    const invite = await owner('POST', '/api/owner/tenants/3/invite');
+    assert.equal(invite.status, 200, JSON.stringify(invite.data));
+    const r = await waiting('POST', '/api/auth/tenant/register', { ...body, invite_code: invite.data.invite.code });
     assert.equal(r.status, 201);
     assert.equal(r.data.user.role, 'tenant');
   });

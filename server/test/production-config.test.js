@@ -36,7 +36,7 @@ describe('cross-site cookies (SameSite=None)', () => {
   test('login from the allowed frontend sets an HttpOnly, Secure, SameSite=None cookie', async () => {
     const res = await call('POST', '/api/auth/login', { origin: FRONTEND, body: owner });
     assert.equal(res.status, 200);
-    const cookie = res.headers.getSetCookie().find((c) => c.startsWith('pg_session='));
+    const cookie = res.headers.getSetCookie().find((c) => c.startsWith('__Host-pg_session='));
     assert.ok(cookie, 'a session cookie is set');
     for (const part of ['HttpOnly', 'Secure', 'SameSite=None', 'Path=/']) assert.ok(cookie.includes(part), `cookie has ${part}: ${cookie}`);
     assert.ok(/Expires=/i.test(cookie), 'cookie has an expiry');
@@ -85,8 +85,8 @@ describe('cross-site cookies (SameSite=None)', () => {
 
   test('logout clears the cookie with the same attributes (otherwise browsers keep it)', async () => {
     const res = await call('POST', '/api/auth/logout', { origin: FRONTEND });
-    const cleared = res.headers.getSetCookie().find((c) => c.startsWith('pg_session='));
-    assert.ok(cleared.startsWith('pg_session=;'), cleared);
+    const cleared = res.headers.getSetCookie().find((c) => c.startsWith('__Host-pg_session='));
+    assert.ok(cleared.startsWith('__Host-pg_session=;'), cleared);
     for (const part of ['SameSite=None', 'Secure', 'HttpOnly']) assert.ok(cleared.includes(part), `${part}: ${cleared}`);
     assert.match(cleared, /Expires=Thu, 01 Jan 1970/);
   });

@@ -54,13 +54,16 @@ Each owner manages **one PG**. Set it up in three steps (also the order of the s
 
 1. **PG Details**: name, address, city and the number of floors.
 2. **Floors & Rooms**: add rooms to each floor (room number, floor, beds, rent). Room numbers are unique within the PG, and a room never takes more tenants than its beds.
-3. **Tenants**: the owner adds a tenant's name and email (and optionally a room). The tenant then registers themselves:
-   login page, **Tenant? Register here**, enter the email the owner added, choose a password, and click **Create my account**.
+3. **Tenants**: the owner adds a tenant's name and email (and optionally a room) and receives a one-time **invite code**
+   for that tenant (shown once, with a ready-made message and registration link to copy). The owner sends it to the
+   tenant privately. The tenant then registers: login page, **Tenant? Register here**, enter the email the owner added
+   and the invite code, choose a password, and click **Create my account**.
 
-Only emails the owner added can register (compared case-insensitively). An unknown email, or an email that already
-has an account, is refused. **There is no email verification**: whoever knows an owner-added email can register it first,
-so the owner should add a tenant only when the tenant is ready to register, and can use **Reset access** on the tenant's
-page if an account was claimed by mistake.
+Registering needs **both** the owner-added email and its invite code, so knowing someone's email is not enough to claim
+their account. A code works once and expires after 7 days; the owner can create a new one from the tenant's page
+(**New invite code**). **Reset access** logs a tenant out everywhere and gives the owner a new code for them.
+Every refused attempt gets the same answer, so the form does not reveal which emails were added. See
+[SECURITY.md](SECURITY.md) for the full security model.
 
 ## Try it with demo data
 
@@ -73,7 +76,7 @@ npm run seed
 | Owner  | your `OWNER_EMAIL`        | your `OWNER_PASSWORD`         |
 | Tenant | rahul@demo.com            | tenant12345 (demo tenants)    |
 
-`neha@demo.com` is added but **not registered yet**: use it to try tenant registration .
+`neha@demo.com` is added but **not registered yet**: the seed prints an invite code for her, so you can try tenant registration.
 The demo data is attached to the owner from `server/.env` and is for development only (the script refuses to run in production).
 To start with no demo data, simply skip `npm run seed`.
 

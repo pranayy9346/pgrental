@@ -195,7 +195,7 @@ describe('tenant experience', () => {
     assert.equal(r.status, 401);
   });
 
-  test('tenant registers with an emailed code, is logged in, and can change the password', async () => {
+  test('tenant registers with the owner’s invite code, is logged in, and can change the password', async () => {
     const r = await registerTenant(tenant, 'rahul@example.com', 'password123');
     assert.equal(r.data.user.role, 'tenant');
     assert.equal(r.data.user.mustChangePassword, false);

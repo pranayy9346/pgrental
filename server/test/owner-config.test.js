@@ -159,12 +159,12 @@ describe('tenants still register with an owner-added email', () => {
 
   test('an email the owner did not add cannot register and gets no account', async () => {
     const stranger = client();
-    assert.equal((await stranger('POST', '/api/auth/tenant/register', { email: 'stranger@x.com', password: 'password123' })).status, 404);
+    assert.equal((await stranger('POST', '/api/auth/tenant/register', { email: 'stranger@x.com', invite_code: 'ABCD-EFGH-JK23', password: 'password123' })).status, 400);
     assert.equal((await db.get("SELECT 1 FROM users WHERE email = 'stranger@x.com'")), undefined);
   });
 
   test('the owner’s own email cannot be used to register as a tenant', async () => {
-    assert.equal((await anon('POST', '/api/auth/tenant/register', { email: 'boss@example.com', password: 'password123' })).status, 404);
+    assert.equal((await anon('POST', '/api/auth/tenant/register', { email: 'boss@example.com', invite_code: 'ABCD-EFGH-JK23', password: 'password123' })).status, 400);
     assert.equal((await owners()).length, 1);
   });
 

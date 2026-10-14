@@ -1,8 +1,9 @@
 // PostgreSQL migrations. Forward-only: to change the schema, ADD a new entry at the end and never edit one that
 // has already been applied anywhere (the version number is recorded in the `schema_migrations` table).
 //
-// Version 1 is the PostgreSQL equivalent of SQLite schema version 4 (`server/src/schema.js`). Keep both files in
-// step: the test `schema-parity.test.js` fails if the tables and columns drift apart.
+// Version 1 is the PostgreSQL equivalent of SQLite schema version 4, version 2 of SQLite version 5 and version 3 of
+// SQLite version 6 (`server/src/schema.js`). Keep both files in step: the test `pg-migrations.test.js` fails if the
+// tables and columns drift apart.
 //
 // Dates and timestamps stay TEXT in the same formats as the SQLite database (`YYYY-MM-DD`, ISO strings,
 // `YYYY-MM-DD HH:MM:SS`), so data can be copied across unchanged and the application code is identical.
@@ -174,6 +175,15 @@ export const migrations = [
       CREATE INDEX idx_notifications_feed ON notifications(recipient_id, id DESC);
       -- clean-up and "mark this item as read" by the record a notification is about
       CREATE INDEX idx_notifications_entity ON notifications(entity_type, entity_id);
+    `,
+  },
+  {
+    // Same as SQLite schema version 6: a one-time invite code (hash only) is needed to register a tenant account.
+    version: 3,
+    name: 'tenant_invite_codes',
+    sql: `
+      ALTER TABLE users ADD COLUMN invite_hash TEXT;
+      ALTER TABLE users ADD COLUMN invite_expires_at TEXT;
     `,
   },
 ];

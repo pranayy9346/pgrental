@@ -33,3 +33,6 @@ for (const name of scrubbed) delete process.env[name];
 
 // SQLite always lives in memory, never in the real data/pg-rental.db file.
 process.env.DB_PATH = ':memory:';
+
+// Security events (failed logins, rate limits, ...) are logged as JSON lines in production; keep the test output clean.
+process.env.SECURITY_LOG = 'off';

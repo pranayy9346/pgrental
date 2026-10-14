@@ -15,8 +15,9 @@ import { runPgMigrations } from './pg-schema.js';
 // Order matters because of foreign keys: parents before children, and owners before the tenants that point at them.
 export const COPY_ORDER = ['users', 'properties', 'rooms', 'tenancies', 'payments', 'complaints', 'notices', 'vacate_requests'];
 // SQLite schema versions this tool can copy. Version 5 only adds the `notifications` table, which (like sessions) is
-// derived state and is NOT copied: after a copy everything simply counts as already seen.
-const SUPPORTED_SQLITE_VERSIONS = [4, 5];
+// derived state and is NOT copied: after a copy everything simply counts as already seen. Version 6 adds the tenant
+// invite-code columns to `users`.
+const SUPPORTED_SQLITE_VERSIONS = [6];
 
 class DryRunRollback extends Error {}
 

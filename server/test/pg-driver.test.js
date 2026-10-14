@@ -78,7 +78,7 @@ describe('the pg driver', () => {
     try {
       assert.equal(db.dialect, 'postgres');
       await db.ping();
-      assert.deepEqual(await db.all('SELECT version FROM schema_migrations ORDER BY version'), [{ version: 1 }, { version: 2 }]);
+      assert.deepEqual(await db.all('SELECT version FROM schema_migrations ORDER BY version'), [{ version: 1 }, { version: 2 }, { version: 3 }]);
 
       // statements, ids and number types
       const id = await db.insert("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'O', ?, 'h')", ['o@x.com']);
@@ -253,12 +253,19 @@ describe('the command-line tools, against a PostgreSQL server', () => {
       assert.equal(pg.pg.name, 'Real PG');
       assert.deepEqual(pg.rooms.map((r) => r.room_number), ['101']);
 
-      // an invited tenant from the old database can register on PostgreSQL
-      const reg = await fetch(`http://127.0.0.1:${port}/api/auth/tenant/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: origin },
-        body: JSON.stringify({ email: 'inv@x.com', password: 'tenant-pass-1' }),
-      });
+      // an invited tenant from the old database gets an invite code from the owner and registers on PostgreSQL
+      const post = (p, body, cookie) =>
+        fetch(`http://127.0.0.1:${port}${p}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: origin, ...(cookie && { Cookie: cookie }) },
+          body: JSON.stringify(body),
+        });
+      const { tenants } = await (await get('/api/owner/tenants', cookie.split(';')[0])).json();
+      const invited = tenants.find((t) => t.email === 'inv@x.com');
+      const invite = await post(`/api/owner/tenants/${invited.id}/invite`, {}, cookie.split(';')[0]);
+      assert.equal(invite.status, 200);
+      const { code } = (await invite.json()).invite;
+      const reg = await post('/api/auth/tenant/register', { email: 'inv@x.com', invite_code: code, password: 'tenant-pass-1' });
       assert.equal(reg.status, 201);
     } finally {
       child.kill();
