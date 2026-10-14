@@ -10,19 +10,44 @@ import notificationRoutes from './routes/notifications.js';
 import ownerRoutes from './routes/owner/index.js';
 import tenantRoutes from './routes/tenant.js';
 
+// TRUST_PROXY tells Express how many proxies sit in front of the app, so req.ip is the visitor's real address (the rate
+// limits depend on it). Environment values are strings, and Express reads a string as a list of proxy IP addresses:
+// "1" would silently trust nothing and every visitor would share the proxy's address. So a number becomes a number.
+// "true" (trust every X-Forwarded-For hop) is refused: any visitor could then pick their own IP address.
+export function trustProxySetting(raw) {
+  const value = (raw ?? '').trim();
+  if (!value || value === 'false') return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  if (value === 'true') {
+    throw new Error('TRUST_PROXY=true would let any visitor fake their IP address. Set the number of proxies instead (1 on Render).');
+  }
+  return value; // addresses / subnets, e.g. "loopback" or "10.0.0.0/8"
+}
+
 const app = express();
 app.disable('x-powered-by');
-if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY);
+app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
 
-// Basic security headers.
+// Security headers. The CSP also covers the built React app when this server serves it.
 app.use((req, res, next) => {
   res.set({
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'same-origin',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
     'Content-Security-Policy':
-      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
+      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; " +
+      "form-action 'self'; frame-ancestors 'none'",
   });
+  // Browsers only honour HSTS over HTTPS; in production the hosting proxy terminates HTTPS in front of this server.
+  if (process.env.NODE_ENV === 'production') res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// API answers carry personal data and depend on who is logged in: never store them in a browser or proxy cache.
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
   next();
 });
 

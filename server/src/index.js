@@ -29,6 +29,9 @@ async function start() {
     if (!process.env.CLIENT_ORIGINS) {
       console.warn('Note: CLIENT_ORIGINS is empty, so browsers on other sites (e.g. your Vercel frontend) are not allowed to call this API.');
     }
+    if ((process.env.OWNER_PASSWORD || '').length < 12) {
+      console.warn('Note: OWNER_PASSWORD is shorter than 12 characters. The owner account controls every record: use a long, unique password.');
+    }
     if (!process.env.TRUST_PROXY) {
       console.warn('Note: TRUST_PROXY is not set. Behind a hosting proxy every visitor looks like the same IP address, which makes the login rate limit shared. Set TRUST_PROXY=1 on Render.');
     }

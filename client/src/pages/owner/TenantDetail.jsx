@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { Async, Badge, Button, Card, Field, FormModal, PageHeader, Table, useConfirm, useForm } from '../../components/ui.jsx';
+import { Async, Badge, Button, Card, Field, FormModal, Modal, PageHeader, Table, useConfirm, useForm } from '../../components/ui.jsx';
 import { api, useApi } from '../../lib/api.js';
 import { formatDate, formatPeriod, money, todayISO } from '../../lib/format.js';
-import { AssignmentFields, assignmentBody } from './Tenants.jsx';
+import { AssignmentFields, InviteCodePanel, assignmentBody, inviteIsValid } from './Tenants.jsx';
 
 function EditTenant({ tenant, onClose, onSaved }) {
   const form = useForm({ name: tenant.name, email: tenant.email, phone: tenant.phone || '' }, async (v) => {
@@ -87,6 +87,7 @@ export default function TenantDetail() {
   const { id } = useParams();
   const state = useApi(`/owner/tenants/${id}`);
   const [dialog, setDialog] = useState(null); // 'edit' | 'assign' | 'moveout'
+  const [issued, setIssued] = useState(null); // { tenant, invite } right after a new invite code was created
   const confirm = useConfirm();
 
   const done = () => {
@@ -103,7 +104,13 @@ export default function TenantDetail() {
           </Link>
           <PageHeader
             title={tenant.name}
-            subtitle={`${tenant.email}${tenant.phone ? ` · ${tenant.phone}` : ''} · ${tenant.registered_at ? 'Registered' : 'Invited, not registered yet'}`}
+            subtitle={`${tenant.email}${tenant.phone ? ` · ${tenant.phone}` : ''} · ${
+              tenant.registered_at
+                ? 'Registered'
+                : inviteIsValid(tenant)
+                  ? `Invited, not registered yet (code valid until ${formatDate(tenant.invite_expires_at.slice(0, 10))})`
+                  : 'Invited, not registered yet (no valid invite code: create a new one)'
+            }`}
             actions={
               <>
                 <Button variant="secondary" onClick={() => setDialog('edit')}>
@@ -122,17 +129,36 @@ export default function TenantDetail() {
                     Move out
                   </Button>
                 )}
+                {!tenant.registered_at && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      confirm.ask({
+                        title: 'Create a new invite code?',
+                        message: `${tenant.name} will need the new code to register. Any earlier code for ${tenant.email} stops working.`,
+                        confirmLabel: 'Create code',
+                        variant: 'primary',
+                        onConfirm: async () => {
+                          setIssued(await api(`/owner/tenants/${tenant.id}/invite`, { method: 'POST' }));
+                          state.reload();
+                        },
+                      })
+                    }
+                  >
+                    New invite code
+                  </Button>
+                )}
                 {tenant.registered_at && (
                   <Button
                     variant="secondary"
                     onClick={() =>
                       confirm.ask({
                         title: 'Reset access?',
-                        message: `${tenant.name} will be logged out everywhere and their password will stop working. To get back in, they register again on the tenant registration page with their email and choose a new password. Their room, rent and history are kept.`,
+                        message: `${tenant.name} will be logged out everywhere and their password will stop working. You get a new invite code for them; with it they register again and choose a new password. Their room, rent and history are kept.`,
                         confirmLabel: 'Reset access',
                         variant: 'primary',
                         onConfirm: async () => {
-                          await api(`/owner/tenants/${tenant.id}/reset-access`, { method: 'POST' });
+                          setIssued(await api(`/owner/tenants/${tenant.id}/reset-access`, { method: 'POST' }));
                           state.reload();
                         },
                       })
@@ -212,6 +238,16 @@ export default function TenantDetail() {
           {dialog === 'rent' && <EditRent tenant={tenant} onClose={() => setDialog(null)} onSaved={done} />}
           {dialog === 'moveout' && <MoveOut tenant={tenant} onClose={() => setDialog(null)} onSaved={done} />}
           {confirm.element}
+          {issued && (
+            <Modal open title="New invite code" onClose={() => setIssued(null)}>
+              <div className="space-y-4">
+                <InviteCodePanel tenant={issued.tenant} invite={issued.invite} />
+                <div className="flex justify-end">
+                  <Button onClick={() => setIssued(null)}>Done</Button>
+                </div>
+              </div>
+            </Modal>
+          )}
         </div>
       )}
     </Async>

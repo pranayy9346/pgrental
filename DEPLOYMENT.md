@@ -50,11 +50,11 @@ Why Neon: it is the only one of the three that is both permanent and does not pa
 | `DATABASE_URL` | **yes** | **yes** | `postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require` | From the Neon dashboard. Keep `sslmode=require`. |
 | `DATABASE_URL_UNPOOLED` | recommended with Neon | **yes** | `postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require` | Neon's **direct** string (no `-pooler`). When present, start-up schema migrations use it; the app's normal traffic keeps using the pooled `DATABASE_URL`. The command-line tools (`migrate`, `migrate:from-sqlite`, `backup:postgres`) also prefer it. |
 | `OWNER_EMAIL` | **yes** | no | `owner@example.com` | The one owner login. To keep an existing owner's data, use that owner's e-mail. |
-| `OWNER_PASSWORD` | **yes** | **yes** | 8+ characters | Stored hashed. Changing it and redeploying changes the owner's password. |
+| `OWNER_PASSWORD` | **yes** | **yes** | 12+ characters | Stored hashed. Changing it and redeploying changes the owner's password. The server warns at start-up if it is shorter than 12 characters. |
 | `CLIENT_ORIGINS` | **yes** | no | `https://pg-rental.vercel.app` | Your Vercel address: https, no trailing slash, comma-separate several. Required for the browser to be allowed to call the API. |
 | `COOKIE_SAMESITE` | yes (set by `render.yaml`) | no | `none` | Needed because Vercel and Render are different sites. See [section 5](#5-cookies-and-cors-between-vercel-and-render). |
 | `NODE_ENV` | yes (set by `render.yaml`) | no | `production` | Makes cookies Secure and disables the SQLite fallback. |
-| `TRUST_PROXY` | yes (set by `render.yaml`) | no | `1` | So the login rate limit sees each visitor's real IP, not Render's proxy. |
+| `TRUST_PROXY` | yes (set by `render.yaml`) | no | `1` | The **number** of proxies in front of the app, so the rate limits see each visitor's real IP, not Render's proxy. `true` is refused (any visitor could fake their IP). |
 | `NODE_VERSION` | yes (set by `render.yaml`) | no | `22` | Node 22 or newer is required. |
 | `PORT` | **do not set** | no | | Render provides it; the server listens on `0.0.0.0:$PORT`. |
 | `OWNER_NAME` | no | no | `PG Owner` | Display name when the owner account is first created. |
@@ -171,7 +171,8 @@ Run through these on the **Vercel** address (ideally also on a phone):
 - [ ] Owner login works and **stays** logged in after clicking around and after a page refresh (this is the cookie test).
 - [ ] The owner dashboard shows your migrated PG, rooms, tenants and payments (compare with the numbers from Step 3).
 - [ ] A tenant who was already registered logs in with their existing password.
-- [ ] A tenant you add as "invited" can register at `/register/tenant` and sees only their own data; they cannot open `/owner`.
+- [ ] A tenant you add gets an invite code; with their email and that code they can register at `/register/tenant` and see only their own data; they cannot open `/owner`.
+- [ ] A tenant who was invited but had not registered before this update needs a **New invite code** from their page (older invitations have none).
 - [ ] Record a payment, create a complaint, post a notice, request a move-out (then approve or cancel it).
 - [ ] `/api/health` returns ok; the Render logs show no errors.
 

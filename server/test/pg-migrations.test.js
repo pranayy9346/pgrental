@@ -15,6 +15,7 @@ describe('migration runner', () => {
     assert.deepEqual(rows, [
       { version: 1, name: 'initial_schema' },
       { version: 2, name: 'notifications' },
+      { version: 3, name: 'tenant_invite_codes' },
     ]);
     await pg.close();
   });
@@ -30,7 +31,7 @@ describe('migration runner', () => {
     await pg.run("INSERT INTO notices (property_id, title, body) VALUES (?, 'Existing notice', 'body')", [pid]);
     assert.equal(await pg.get("SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'notifications'"), undefined);
 
-    assert.deepEqual(await runPgMigrations(pg), [2]);
+    assert.deepEqual(await runPgMigrations(pg), [2, 3]);
 
     assert.equal((await pg.get('SELECT COUNT(*) AS n FROM users')).n, 1, 'users kept');
     assert.equal((await pg.get('SELECT title FROM notices')).title, 'Existing notice', 'existing notice kept');
@@ -58,16 +59,17 @@ describe('migration runner', () => {
     }
     assert.equal(await pg.get("SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'half_done'"), undefined);
     assert.equal(await pg.get('SELECT 1 AS ok FROM schema_migrations WHERE version = 99'), undefined);
-    assert.equal((await pg.get('SELECT COUNT(*) AS n FROM schema_migrations')).n, 2, 'versions 1 and 2 are still recorded');
+    assert.equal((await pg.get('SELECT COUNT(*) AS n FROM schema_migrations')).n, migrations.length, 'the real versions are still recorded');
     await pg.close();
   });
 
   test('a later migration is applied on top of existing data without losing it', async () => {
     const pg = await freshPg();
     await pg.run("INSERT INTO users (role, name, email, password_hash) VALUES ('owner', 'O', 'o@x.com', 'h')");
-    migrations.push({ version: 3, name: 'test_add_column', sql: 'ALTER TABLE users ADD COLUMN nickname TEXT' });
+    const next = migrations.length + 1;
+    migrations.push({ version: next, name: 'test_add_column', sql: 'ALTER TABLE users ADD COLUMN nickname TEXT' });
     try {
-      assert.deepEqual(await runPgMigrations(pg), [3]);
+      assert.deepEqual(await runPgMigrations(pg), [next]);
     } finally {
       migrations.pop();
     }

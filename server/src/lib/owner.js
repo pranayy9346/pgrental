@@ -1,5 +1,5 @@
 import db from '../db.js';
-import { configuredOwnerEmail, hashPassword, verifyPassword } from './auth.js';
+import { configuredOwnerEmail, hashPassword, needsRehash, verifyPassword } from './auth.js';
 import { email, password, str, validate } from './validate.js';
 
 // Makes sure the one owner account named in the server configuration exists and uses the configured password.
@@ -41,6 +41,10 @@ export async function ensureOwner() {
     throw new Error(`OWNER_EMAIL (${config.email}) already belongs to a tenant account. Choose a different owner email.`);
   } else if (await verifyPassword(config.password, existing.password_hash)) {
     status = 'unchanged';
+    if (needsRehash(existing.password_hash)) {
+      // same password, stronger hash: nobody is logged out
+      await db.run('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(config.password), existing.id]);
+    }
   } else {
     const hash = await hashPassword(config.password);
     await db.transaction(async (tx) => {

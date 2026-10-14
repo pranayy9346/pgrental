@@ -85,7 +85,7 @@ export default function Login() {
         <Link to="/register/tenant" className="font-medium text-indigo-600 hover:underline">
           Register here
         </Link>{' '}
-        with the email your PG owner added.
+        with the email and invite code from your PG owner.
       </p>
     </AuthShell>
   );

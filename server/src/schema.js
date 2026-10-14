@@ -177,6 +177,13 @@ const migrations = [
   CREATE INDEX idx_notifications_feed ON notifications(recipient_id, id DESC);
   CREATE INDEX idx_notifications_entity ON notifications(entity_type, entity_id);
   `,
+  `
+  -- Registering needs a one-time invite code from the owner as well as the owner-added email, so that knowing a
+  -- tenant's email is not enough to claim their account. Only a SHA-256 hash of the code is kept, and only until it is
+  -- used or replaced. Tenants still waiting to register get no code here: the owner issues one from the tenant's page.
+  ALTER TABLE users ADD COLUMN invite_hash TEXT;
+  ALTER TABLE users ADD COLUMN invite_expires_at TEXT;
+  `,
 ];
 
 // `upTo` exists so tests can build an older database and check that upgrading it keeps its data.

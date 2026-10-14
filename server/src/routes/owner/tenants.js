@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import db from '../../db.js';
+import { issueInvite, securityLog } from '../../lib/auth.js';
 import { badRequest, conflict, idParam, nowStamp, today } from '../../lib/http.js';
 import { markEntityRead, notify } from '../../lib/notify.js';
 import { date, email, int, oneOf, phone, str, validate } from '../../lib/validate.js';
@@ -8,7 +9,7 @@ import { activeTenancy, ownedRoom, ownedTenant } from './access.js';
 const router = Router();
 
 const tenantSelect = `
-  SELECT u.id, u.name, u.email, u.phone, u.created_at, u.registered_at,
+  SELECT u.id, u.name, u.email, u.phone, u.created_at, u.registered_at, u.invite_expires_at,
          t.id AS tenancy_id, t.start_date, t.monthly_rent, t.deposit, t.due_day,
          r.id AS room_id, r.room_number, p.id AS property_id, p.name AS property_name,
          (SELECT COALESCE(SUM(pay.amount_due - pay.amount_paid), 0)
@@ -95,8 +96,8 @@ export async function endTenancy(q, tenancyId, endDate) {
   }
 }
 
-// Add a tenant to the owner's PG and (optionally) put them in a room. This does not create a login yet:
-// the tenant registers themselves with this email and chooses their own password.
+// Add a tenant to the owner's PG and (optionally) put them in a room. This does not create a login yet: the response
+// carries a one-time invite code, and the tenant registers with this email + that code and chooses their own password.
 router.post('/tenants', async (req, res) => {
   const data = validate(req.body, {
     name: str({ min: 2, max: 100 }),
@@ -109,7 +110,7 @@ router.post('/tenants', async (req, res) => {
     throw conflict('An account with this email already exists');
   }
 
-  const id = await db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     // '!' can never match a real password hash, so this account cannot log in until the tenant registers.
     const newId = await tx.insert(
       `INSERT INTO users (role, name, email, phone, password_hash, owner_id)
@@ -117,10 +118,11 @@ router.post('/tenants', async (req, res) => {
       [data.name, data.email, data.phone, req.user.id],
     );
     if (assignment) await placeInRoom(tx, req.user.id, newId, assignment);
-    return newId;
+    return { newId, invite: await issueInvite(tx, newId) };
   });
 
-  res.status(201).json({ tenant: await tenantSummary(req.user.id, id) });
+  securityLog('invite_issued', { tenantId: created.newId, by: req.user.id });
+  res.status(201).json({ tenant: await tenantSummary(req.user.id, created.newId), invite: created.invite });
 });
 
 router.patch('/tenants/:id', async (req, res) => {
@@ -137,15 +139,29 @@ router.patch('/tenants/:id', async (req, res) => {
   res.json({ tenant: await tenantSummary(req.user.id, tenant.id) });
 });
 
-// Forgotten password / lost access: the tenant is logged out everywhere and must register again
-// with a new password, exactly like a newly added tenant.
+// A new invite code for a tenant who has not registered yet (the first one expired or was lost).
+// The previous code stops working.
+router.post('/tenants/:id/invite', async (req, res) => {
+  const tenant = await ownedTenant(req.user.id, idParam(req.params.id));
+  if (tenant.registered_at) {
+    throw conflict('This tenant has already registered. Use Reset access if they can no longer log in.');
+  }
+  const invite = await issueInvite(db, tenant.id);
+  securityLog('invite_issued', { tenantId: tenant.id, by: req.user.id });
+  res.json({ tenant: await tenantSummary(req.user.id, tenant.id), invite });
+});
+
+// Forgotten password / lost access: the tenant is logged out everywhere and must register again with a new invite
+// code and a new password, exactly like a newly added tenant.
 router.post('/tenants/:id/reset-access', async (req, res) => {
   const tenant = await ownedTenant(req.user.id, idParam(req.params.id));
-  await db.transaction(async (tx) => {
+  const invite = await db.transaction(async (tx) => {
     await tx.run("UPDATE users SET password_hash = '!', registered_at = NULL, must_change_password = 0 WHERE id = ?", [tenant.id]);
     await tx.run('DELETE FROM sessions WHERE user_id = ?', [tenant.id]);
+    return issueInvite(tx, tenant.id);
   });
-  res.json({ tenant: await tenantSummary(req.user.id, tenant.id) });
+  securityLog('access_reset', { tenantId: tenant.id, by: req.user.id });
+  res.json({ tenant: await tenantSummary(req.user.id, tenant.id), invite });
 });
 
 // Assign a tenant to a room. If they already live somewhere, this is a room transfer:

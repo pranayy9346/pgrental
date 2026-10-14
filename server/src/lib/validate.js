@@ -75,6 +75,15 @@ export const password = ({ optional = false } = {}) =>
     return v;
   }, optional);
 
+// A password being checked (login, current password). Taken exactly as typed: unlike str() it is never trimmed, or a
+// password chosen with a leading or trailing space could never be used to log in.
+export const secret = ({ optional = false } = {}) =>
+  optionalWrap((v) => {
+    if (typeof v !== 'string') throw new Error('Must be text');
+    if (v.length > 128) throw new Error('Must be at most 128 characters');
+    return v;
+  }, optional);
+
 export const date = ({ optional = false } = {}) =>
   optionalWrap((v) => {
     if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error('Must be a date (YYYY-MM-DD)');

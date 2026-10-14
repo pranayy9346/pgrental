@@ -3,7 +3,7 @@
 // The demo PG, rooms and tenants are attached to the configured owner (OWNER_EMAIL / OWNER_PASSWORD in server/.env).
 // Safe to run more than once: it does nothing if that owner already has a PG.
 import db from '../src/db.js';
-import { configuredOwnerEmail, hashPassword } from '../src/lib/auth.js';
+import { configuredOwnerEmail, hashPassword, issueInvite } from '../src/lib/auth.js';
 import { currentPeriod, nowStamp } from '../src/lib/http.js';
 import { ensureOwner } from '../src/lib/owner.js';
 
@@ -121,8 +121,11 @@ await db.transaction(async (tx) => {
   ]);
 });
 
+const nehaId = (await db.get("SELECT id FROM users WHERE email = 'neha@demo.com'")).id;
+const nehaInvite = await issueInvite(db, nehaId);
+
 console.log('Demo data created.');
 console.log(`  Owner login:  ${owner.email} (with the OWNER_PASSWORD from server/.env)`);
 console.log(`  Tenant login: rahul@demo.com / ${TENANT_PASSWORD}  (also arjun@, vikram@, priya@demo.com)`);
-console.log('  Not registered yet: neha@demo.com (use it to try the tenant registration page: /register/tenant)');
+console.log(`  Not registered yet: neha@demo.com, invite code ${nehaInvite.code} (try the tenant registration page: /register/tenant)`);
 await db.close();

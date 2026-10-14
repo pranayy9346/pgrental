@@ -1,10 +1,21 @@
 // Shared test helpers. Import this file only after the test has set process.env.DB_PATH.
 import assert from 'node:assert/strict';
 
-// Registers an owner-added tenant the way a real tenant would: email + a password of their choice.
+// Gives an owner-added tenant a fresh invite code, through the same function the owner's API uses. For tests that are
+// not about invite codes themselves (those live in registration.test.js and use the codes the API hands out).
+export async function inviteCodeFor(email) {
+  const { default: db } = await import('../src/db.js');
+  const { issueInvite } = await import('../src/lib/auth.js');
+  const tenant = await db.get("SELECT id FROM users WHERE lower(email) = ? AND role = 'tenant'", [email.trim().toLowerCase()]);
+  assert.ok(tenant, `no tenant with email ${email}`);
+  return (await issueInvite(db, tenant.id)).code;
+}
+
+// Registers an owner-added tenant the way a real tenant would: email + invite code + a password of their choice.
 // `call` is a cookie-keeping test client, so afterwards it is logged in as the tenant.
-export async function registerTenant(call, email, password = 'password123') {
-  const done = await call('POST', '/api/auth/tenant/register', { email, password });
+export async function registerTenant(call, email, password = 'password123', code) {
+  const invite_code = code ?? (await inviteCodeFor(email));
+  const done = await call('POST', '/api/auth/tenant/register', { email, password, invite_code });
   assert.equal(done.status, 201, JSON.stringify(done.data));
   return done;
 }
